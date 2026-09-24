@@ -1,0 +1,15 @@
+# Datasets and fitted models belong in remote release assets, never Git.
+data/
+models/
+reports/
+dist/
+work/
+.venv/
+__pycache__/
+*.pyc
+*.parquet
+*.csv
+*.joblib
+*.tar.gz
+.DS_Store
+.env

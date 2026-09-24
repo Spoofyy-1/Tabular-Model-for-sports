@@ -1,0 +1,122 @@
+name: Build sports datasets and models
+
+on:
+  push:
+    branches: [main]
+    paths: ['src/**', 'tests/**', 'requirements.txt', '.github/workflows/build.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sports-data-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.sport }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        sport: [nba, nfl]
+    env:
+      PYTHONUNBUFFERED: '1'
+      OMP_NUM_THREADS: '3'
+      OPENBLAS_NUM_THREADS: '3'
+      MKL_NUM_THREADS: '3'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify temporal features
+        run: python -m unittest discover -s tests -v
+      - name: Collect, validate, generate features, and train remotely
+        env:
+          SPORT: ${{ matrix.sport }}
+        run: |
+          mkdir -p dist
+          set -o pipefail
+          {
+            python "src/${SPORT}_data.py"
+            python src/features.py --sport "$SPORT" --test-start 2025-01-01
+            python src/train.py --sport "$SPORT" --test-start 2025-01-01
+            python src/package_release.py --sport "$SPORT"
+          } 2>&1 | tee "dist/${SPORT}_build.log"
+      - name: Add evaluation to run summary
+        if: success()
+        env:
+          SPORT: ${{ matrix.sport }}
+        run: cat "reports/${SPORT}_evaluation.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: release-${{ matrix.sport }}
+          path: dist/
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: warn
+
+  odds:
+    name: Audit historical odds samples
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Collect bounded research samples
+        run: |
+          mkdir -p dist
+          set -o pipefail
+          python src/odds_data.py --output-dir "$RUNNER_TEMP/odds-audit" 2>&1 | tee dist/odds_build.log
+          tar -czf dist/historical-odds-audit.tar.gz -C "$RUNNER_TEMP" odds-audit
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: release-odds
+          path: dist/
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: warn
+
+  publish:
+    name: Publish remote datasets and reports
+    needs: [build, odds]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Publish immutable snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          ODDS_RESULT: ${{ needs.odds.result }}
+        run: |
+          set -euo pipefail
+          tag="snapshot-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if [ "$BUILD_RESULT" = success ] && [ "$ODDS_RESULT" = success ]; then
+            printf '%s\n' 'NBA and NFL datasets and initial tabular models.' '' 'Development: games before 2025-01-01 UTC. Parameter fitting: before 2024. Residual calibration: 2024. Holdout: 2025 onward.' '' 'Dataset assets contain normalized Parquet, development and holdout tables, dictionaries, provenance and quality reports. Model assets contain fitted models and holdout predictions. Stat forecasting metrics are not betting ROI.' '' 'Data was downloaded and processed only on GitHub-hosted runners for this build. No dataset is stored in Git history.' > release-notes.md
+            gh release create "$tag" dist/* --repo "$GH_REPO" --target "$GITHUB_SHA" --title "NBA + NFL snapshot ${GITHUB_RUN_NUMBER}" --notes-file release-notes.md
+          else
+            printf '%s\n' 'INCOMPLETE BUILD. Review the attached logs. Assets from a successful sport may be present, but this release is not a complete validated snapshot.' > release-notes.md
+            gh release create "$tag" dist/* --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Build diagnostics ${GITHUB_RUN_NUMBER}" --notes-file release-notes.md --prerelease --latest=false
+          fi

@@ -1,0 +1,8 @@
+numpy>=1.26,<3
+pandas>=2.2,<3
+pyarrow>=15
+requests>=2.31
+scikit-learn==1.6.1
+scipy==1.13.1
+joblib==1.4.2
+threadpoolctl==3.6.0
