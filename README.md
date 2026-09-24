@@ -2,7 +2,30 @@
 
 NBA and NFL player-stat forecasting with public historical data, chronological evaluation, and separate model bundles. Data collection, feature construction, training, and dataset storage run **only on GitHub-hosted Actions runners**. Local machines contain code and documentation only.
 
-**Status:** the pipeline is being established; no successful training run or measured model performance is asserted here. A completed workflow produces the evaluation reports. There is no verified profitable betting backtest.
+**Status:** the [first cloud build](https://github.com/Spoofyy-1/Tabular-Model-for-sports/actions/runs/36055555015) succeeded. [Datasets, trained models, and evaluation reports are published](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/snapshot-36055555015-1). There is no verified profitable betting backtest.
+
+| Cleaned model table | Development, through 2024 | Holdout, 2025 onward | Total |
+| --- | ---: | ---: | ---: |
+| NBA | 620,323 | 46,636 | 666,959 |
+| NFL | 420,864 | 21,303 | 442,167 |
+
+The underlying normalized sources contain 848,095 NBA roster-listed player-game rows (including DNP/missing boxes) and 475,586 NFL player-game rows. Model tables apply the documented quality exclusions. The NFL table retains defensive and special-teams players; target heads restrict roles. Model evaluation also requires ten earlier appearances, so scored counts are smaller than table counts.
+
+Initial held-out mean absolute error (MAE; lower is better):
+
+| Target | Model MAE | Previous-ten-appearance mean MAE | Error reduction |
+| --- | ---: | ---: | ---: |
+| NBA points | 4.630 | 4.761 | 2.75% |
+| NBA rebounds | 1.911 | 1.970 | 2.99% |
+| NBA assists | 1.348 | 1.384 | 2.59% |
+| NBA made threes | 0.897 | 0.909 | 1.29% |
+| NFL passing yards | 64.278 | 71.045 | 9.53% |
+| NFL passing touchdowns | 0.879 | 0.946 | 7.12% |
+| NFL rushing yards | 8.783 | 9.090 | 3.38% |
+| NFL receiving yards | 16.289 | 16.653 | 2.19% |
+| NFL receptions | 1.243 | 1.276 | 2.56% |
+
+These are point estimates, not significance tests. The evaluation includes players without confirmed offered props and conditions on recorded appearances; low-volume NFL players affect aggregate errors. Accuracy against this baseline does not establish an edge against a sportsbook or prediction-market price. No model settings were tuned using these holdout results.
 
 ## Run in GitHub
 

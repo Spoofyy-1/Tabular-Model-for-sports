@@ -1,6 +1,8 @@
 # Model card
 
-**Status:** baseline implementation awaiting a successful remote training/evaluation run. No performance, edge, or profitability claim is made. Published run reports, once generated, supply the measured results and exact cohort counts.
+The initial remote run and frozen holdout metrics are published in the [first release](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/snapshot-36055555015-1). See the README for aggregate results. NFL role cohorts include low-volume players; they are not a verified universe of players with offered betting props. Reported gains are point estimates without a statistical significance claim.
+
+**Status:** initial remote training and evaluation succeeded. Published reports contain measured forecasting performance and exact cohort counts. No betting edge or profitability has been established.
 
 ## Intended use
 
