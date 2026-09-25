@@ -1,8 +1,10 @@
 # Tabular Model for Sports
 
-NBA and NFL player-stat forecasting with public historical data, chronological evaluation, and separate model bundles. Data collection, feature construction, training, and dataset storage run **only on GitHub-hosted Actions runners**. Local machines contain code and documentation only.
+NBA and NFL player-stat forecasting with public historical data, chronological evaluation, and separate model bundles. Dataset ingestion and CSV exports run on **GitHub-hosted Actions runners**. The owner additionally authorized a finite training job on the existing **Azure A100**, with outputs in private Blob Storage. Local machines contain code and documentation only.
 
 **Status:** the [first cloud build](https://github.com/Spoofyy-1/Tabular-Model-for-sports/actions/runs/36055555015) succeeded. [Datasets, trained models, and evaluation reports are published](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/snapshot-36055555015-1). There is no verified profitable betting backtest.
+
+**CSV datasets are published:** [download locations and schemas](docs/CSV_RELEASE.md). The [CSV release](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/csv-36170200182-1) preserves all baseline/context tables as compressed CSV, along with source metadata. A [new enrichment release](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/enrichment-36170742592-1) adds official NBA injury entries, NFL play context and identity candidates. Keep these assets in the cloud.
 
 | Cleaned model table | Development, through 2024 | Holdout, 2025 onward | Total |
 | --- | ---: | ---: | ---: |
@@ -34,7 +36,7 @@ These are point estimates, not significance tests. The evaluation includes playe
 3. Review the NBA and NFL job logs and generated evaluation summaries separately.
 4. Find the published assets in [Releases](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases). Keep datasets, model archives, and row-level prediction files in GitHub/cloud storage; do not download them onto the local workstation.
 
-The ingestion and training entry points enforce the hosted-runner restriction. Do not override it or use a self-hosted runner. The source repository is for code, documentation, and workflow definitions; generated datasets are release assets.
+The original ingestion/training entry points enforce the hosted-runner restriction. The separate `azure/train_gpu.py` requires an actual Azure Job and verifies A100/CUDA before downloading data. Do not override either guard or use a self-hosted workstation runner. The source repository is for code, documentation, and workflow definitions; generated datasets are release assets.
 
 | Release asset | Contents |
 | --- | --- |
