@@ -2,6 +2,8 @@
 
 `extras/officials_context.py` collects published bulk officiating assignments on GitHub-hosted Actions. The default requested range is 2015–2026; actual season and match coverage are measured remotely. Source requests are capped at 100 and total response bytes at 100 MB. No source datasets are downloaded or processed locally, and no model is trained.
 
+Transient transport errors and HTTP 429/500/502/503/504 receive at most five attempts. Exponential waits honor numeric or HTTP-date `Retry-After` values; retries stop when the server requests more than a 60-second individual wait or the entire collector would exceed 120 seconds of retry waiting. Every attempt and partial response still counts against the request and byte budgets. Other HTTP errors are not retried.
+
 ```bash
 python extras/officials_context.py
 # Optional smaller hosted run:

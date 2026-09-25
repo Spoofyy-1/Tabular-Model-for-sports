@@ -1,0 +1,127 @@
+name: Collect team matchup research CSVs
+on:
+  push:
+    branches: [main]
+    paths: ['matchup/**', '.github/workflows/matchup.yml']
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: Collector to run
+        type: choice
+        default: all
+        options: [all, nba_teams, nfl_teams, staff_routines, injury_context]
+permissions:
+  contents: read
+concurrency:
+  group: sports-team-matchups
+  cancel-in-progress: false
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      datasets: ${{ steps.select.outputs.datasets }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          REQUESTED: ${{ inputs.dataset }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, re, subprocess
+          known = ['nba_teams', 'nfl_teams', 'staff_routines', 'injury_context']
+          available = [name for name in known if pathlib.Path('matchup/' + name + '.py').is_file()]
+          if os.environ['EVENT'] == 'workflow_dispatch':
+              requested = os.environ.get('REQUESTED', 'all') or 'all'
+              selected = available if requested == 'all' else [requested]
+              if any(name not in available for name in selected):
+                  raise ValueError('Requested collector unavailable')
+          else:
+              before = os.environ.get('BEFORE', '')
+              if not re.fullmatch('[0-9a-f]{40}', before) or before == '0' * 40:
+                  selected = available
+              else:
+                  changed = set(subprocess.check_output(['git', 'diff', '--name-only', before, 'HEAD'], text=True).splitlines())
+                  selected = available if changed & {'matchup/package.py', '.github/workflows/matchup.yml'} else [name for name in available if changed & {'matchup/' + name + '.py', 'matchup/test_' + name + '.py'}]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('datasets=' + json.dumps(selected) + '\n')
+          print('Selected:', ', '.join(selected))
+          PY
+  collect:
+    needs: plan
+    if: needs.plan.outputs.datasets != '[]'
+    name: Matchup ${{ matrix.dataset }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        dataset: ${{ fromJSON(needs.plan.outputs.datasets) }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r context_requirements.txt
+      - if: matrix.dataset == 'staff_routines'
+        run: python -m pip install 'beautifulsoup4>=4.12,<5'
+      - name: Synthetic chronology and identity tests
+        env:
+          DATASET: ${{ matrix.dataset }}
+        run: python -m unittest discover -s matchup -p "test_${DATASET}.py"
+      - name: Collect hosted team research tables
+        env:
+          DATASET: ${{ matrix.dataset }}
+          PYTHONUNBUFFERED: '1'
+        run: |
+          mkdir -p dist
+          set -o pipefail
+          python "matchup/${DATASET}.py" 2>&1 | tee "dist/${DATASET}_build.log"
+      - name: Package outputs and source audit
+        if: always()
+        env:
+          DATASET: ${{ matrix.dataset }}
+        run: |
+          if [ -f "data/matchup/$DATASET/summary.json" ]; then
+            python matchup/package.py --dataset "$DATASET"
+          fi
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: matchup-${{ matrix.dataset }}
+          path: dist/
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: warn
+  publish:
+    needs: [plan, collect]
+    if: always() && !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.datasets != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: matchup-*
+          path: dist
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.collect.result }}
+        run: |
+          set -euo pipefail
+          tag="matchup-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          printf '%s\n' 'Team matchup research CSVs: lagged NBA/NFL style profiles, separate win labels, injury report aggregates, and public staff/routine evidence. Check individual coverage, chronology assumptions, missingness and source rights. No model training, trades, verified historical quote execution or profitable effect is claimed.' > notes.md
+          if [ "$RESULT" = success ]; then
+            gh release create "$tag" dist/* --target "$GITHUB_SHA" --title "Team matchup research CSVs ${GITHUB_RUN_NUMBER}" --notes-file notes.md --latest=false
+          else
+            printf '%s\n' 'Partial collection; inspect each summary and build log.' >> notes.md
+            gh release create "$tag" dist/* --target "$GITHUB_SHA" --title "Team matchup research diagnostics ${GITHUB_RUN_NUMBER}" --notes-file notes.md --prerelease --latest=false
+          fi

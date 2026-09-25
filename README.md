@@ -8,6 +8,8 @@ NBA and NFL player-stat forecasting with public historical data, chronological e
 
 **Tennis and market data are published:** [verified releases and coverage](docs/TENNIS_RELEASE.md) include 1,873,115 cleaned tennis points, 432,733 tennis market updates and 25,905 NBA/NFL market observations. Tennis point data are noncommercial research only. The latest owner instruction is **data collection only; GPU training is deferred**. A [bounded two-hour collection loop](docs/COLLECTION_LOOP.md) expands public attendance evidence, venue/weather context and officiating data.
 
+**Team-win research is being collected:** [matchup profiles and injury context](docs/TEAM_MATCHUP_RESEARCH.md) add prior-game NBA/NFL style comparisons, separate result labels, dated availability records and [public staff/routine annotations](docs/STAFF_ROUTINES.md). The latest [officials and attendance release](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/extras-36175530329-1) contains 68,723 assignment rows and 13 spectator associations. A separate [tennis note release](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/tennis-notes-36175530428-1) adds 5,067 unverified mention candidates across 2,477 matches; its noncommercial restriction remains in force.
+
 | Cleaned model table | Development, through 2024 | Holdout, 2025 onward | Total |
 | --- | ---: | ---: | ---: |
 | NBA | 620,323 | 46,636 | 666,959 |
