@@ -2,6 +2,8 @@
 
 The collection scope includes team wins alongside player props. Actual data stays on GitHub-hosted runners and in CSV release assets. Training remains paused. Development ends December 31, 2024; 2025 onward remains separate.
 
+Verified collections: [NBA matchups and team injury context](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/matchup-36178068271-1), [NFL team styles](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/matchup-36179718171-1), and [public staff/routine annotations](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/matchup-36178593411-1). These tables overlap existing source data and are not additional independent game samples. Do not use the earlier empty NFL style diagnostic release `matchup-36179258148-1`.
+
 ## Measurable matchup profiles
 
 An archetype should be a time-varying description of how a team plays, with uncertainty when its roster or coach changes. NBA shooting mix, possession estimates, turnover and rebound shares, and NFL run/pass, shotgun, no-huddle and fourth-down tendencies provide testable dimensions. Pair each team's prior-game offense with its opponent's prior-game defense. Numeric profiles retain more information than an unverified label such as “clutch team.” Future archetype clustering must fit only within the training period, then freeze before validation.

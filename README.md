@@ -1,6 +1,6 @@
 # Tabular Model for Sports
 
-NBA and NFL player-stat forecasting with public historical data, chronological evaluation, and separate model bundles. Dataset ingestion and CSV exports run on **GitHub-hosted Actions runners**. The owner additionally authorized a finite training job on the existing **Azure A100**, with outputs in private Blob Storage. Local machines contain code and documentation only.
+NBA and NFL player-stat forecasting and team-win research, with tennis context, public historical data, chronological evaluation, and separate model bundles. Dataset ingestion and CSV exports run on **GitHub-hosted Actions runners**. The owner additionally authorized a finite training job on the existing **Azure A100**, with outputs in private Blob Storage. Local machines contain code and documentation only.
 
 **Status:** the [first cloud build](https://github.com/Spoofyy-1/Tabular-Model-for-sports/actions/runs/36055555015) succeeded. [Datasets, trained models, and evaluation reports are published](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/snapshot-36055555015-1). There is no verified profitable betting backtest.
 
@@ -11,6 +11,8 @@ NBA and NFL player-stat forecasting with public historical data, chronological e
 **Team-win research is being collected:** [matchup profiles and injury context](docs/TEAM_MATCHUP_RESEARCH.md) add prior-game NBA/NFL style comparisons, separate result labels, dated availability records and [public staff/routine annotations](docs/STAFF_ROUTINES.md). The latest [officials and attendance release](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/extras-36175530329-1) contains 68,723 assignment rows and 13 spectator associations. A separate [tennis note release](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/tennis-notes-36175530428-1) adds 5,067 unverified mention candidates across 2,477 matches; its noncommercial restriction remains in force.
 
 [NBA matchups and team injury CSVs](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/matchup-36178068271-1) are published: 32,167 NBA matchup rows, 17,119 NBA team/report snapshots and 9,329 NFL team/game injury aggregates. This release is marked partial because its separate NFL style job required an identity-reconciliation fix; the NBA/injury bundles completed successfully. [Staff and routine CSVs](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/matchup-36178593411-1) contain 12 cited candidate records across all three sports. None establishes a causal or profitable effect.
+
+[Validated NFL team-style CSVs](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/matchup-36179718171-1) contain 14,552 team/game rows across 7,276 scheduled games. Observed play coverage is positive for all 14,546 matched team/game rows; six lack PBP. There are 14,518 rows with lagged passing-style features. Schedule coaching names remain an audit field with unverified historical publication timing. The earlier `matchup-36179258148-1` release is explicitly marked **diagnostic: empty play metrics** and must not be used for style modeling.
 
 | Cleaned model table | Development, through 2024 | Holdout, 2025 onward | Total |
 | --- | ---: | ---: | ---: |
