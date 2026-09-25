@@ -8,11 +8,13 @@ The source catalog deliberately starts small:
 |---|---|
 | [Brooklyn staff announcement](https://www.nba.com/nets/news/brooklyn-nets-announce-staff-additions-and-promotions-2024) | A performance-dietitian role in a dated announcement. |
 | [Philadelphia staff directory](https://www.nba.com/sixers/team/staff-directory) | A current dietitian listing, observed only when retrieved. |
+| [NBA conference nutrition profile](https://healthandperformancemeetings.nba.com/participants/jesse-mcginley/) | A separately published official NBA participant biography describing a performance-dietitian role. |
+| [NBA conference coaching profile](https://healthandperformancemeetings.nba.com/participants/charles-lee/) | A separately published official NBA participant biography describing a head-coaching role. |
 | [Denver nutrition seminar](https://www.denverbroncos.com/news/rookie-seminar-nutrition-with-bryan-snyder-17186893) | Nutrition director role; pregame meal and in-game snack advice. No dosage, medical-effect or adherence claims. |
 | [ATP final preparation interview](https://www.atptour.com/en/news/michael-russell-us-open-2024-final-preview) | Coach role, planned opponent video/analytics review and light practice. |
 | [ATP team-routine interview](https://www.atptour.com/en/news/paul-miami-2024-feature) | Fitness-coach/physiotherapist roles, reported team breakfast and warm-up habits. |
 
-The dated sources include a 2016 NFL seminar and 2024 NBA/ATP reporting. These are illustrative historical mentions, not comprehensive 2023–2025 coverage. The current directory cannot fill historical staff gaps. The collector captures names only when the configured source contains an explicit relationship pattern; it does not seed fact rows from this research or infer a nutritionist from a sponsorship.
+The dated sources include a 2016 NFL seminar and 2024 NBA/ATP reporting. These are illustrative historical mentions, not comprehensive 2023–2025 coverage. The current directory cannot fill historical staff gaps. Undated conference biographies record only that the profile and role claim were visible at retrieval; even a historical appointment date in the prose does not establish an audited employment interval. The collector captures names only when the configured source contains an explicit relationship pattern; it does not seed fact rows from this research or infer a nutritionist from a sponsorship.
 
 Publication date, publication time with timezone, modification date, retrieval time, observed listing date, and employment validity are separate fields. A date without timezone never becomes a made-up UTC timestamp. Article publication is not appointment, departure, or routine observation: all staff-validity intervals remain null in this first catalog. Reported advice, plans and habits have distinct assertion codes, and none is an observation that an athlete followed a routine during a specific match.
 
@@ -29,11 +31,11 @@ python matchup/staff_routines.py --output-dir data/matchup/staff_routines
 python -m unittest discover -s matchup -p test_staff_routines.py -v
 ```
 
-The collector makes at most 20 requests and allows 20 MB total / 4 MB per page, with no retries or redirects. The fixed first catalog needs five requests. Standard output is aggregate-only JSON.
+The collector makes at most 20 requests and allows 20 MB total / 4 MB per page, with no retries or redirects. The expanded catalog needs seven requests. Standard output is aggregate-only JSON. Both original NBA pages returned 403 to later metadata checks; those sources remain in the catalog with explicit failures rather than access workarounds. The two NBA conference profiles are independent public sources, not mirrors of the inaccessible pages.
 
 Output contract:
 
-- `data/matchup/staff_routines/summary.json`: status (`completed` or `audit_only`), request/byte counts, annotation counts by sport/type/assertion, and zero counts for automatic training eligibility, verified historical publication, matched games and performance-effect claims.
+- `data/matchup/staff_routines/summary.json`: status (`completed` or `audit_only`), request/byte counts, annotation counts by sport/type/assertion, and zero counts for automatic training eligibility, verified historical publication, matched games and performance-effect claims. `source_results` adds each source's status, row count, HTTP status, bounded error reason and operational counts; `source_status_counts` summarizes outcomes. Neither field includes fact rows or article prose.
 - `staff_routine_annotations.csv.gz`: normalized facts and provenance; IDs and text are strings, unknown values use `\N`, flags are booleans serialized as `True`/`False`. No source prose is retained.
 - `source_audit.json`: configured URLs/parsers, request/parse outcomes, hashes and aggregate per-source counts.
 - `schema.json`: stable columns, null convention and no-article-text declaration.

@@ -137,6 +137,46 @@ class StaffRoutineTests(unittest.TestCase):
         document, _ = parse("<p>Director of Team Nutrition Morgan Example.</p><p>SomeoneElse discussed a small-to-medium size meal a few hours before the game.</p>", "broncos_seminar")
         self.assertEqual(len(staff.extract_facts(document, source("broncos_seminar"))), 1)
 
+    def test_conference_profile_exact_identity_and_team_no_tenure_backfill(self):
+        config = dict(source("nba_conference_dietitian"), url="https://healthandperformancemeetings.nba.com/participants/avery-example/")
+        html = '<a href="/participants/avery-example/">Avery Example</a><p>Avery is currently serving as the Performance Dietitian for the Example Team and doing research.</p>'
+        document = staff.parse_document(html, config["url"])
+        rows = staff.annotate(document, config, html, "2031-01-01T12:00:00+00:00")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["staff_name_as_reported"], "Avery Example")
+        self.assertEqual(rows[0]["assertion_kind"], "undated_profile_role_reported")
+        self.assertEqual(rows[0]["observation_date_precision"], "retrieval_date_profile_only")
+        self.assertIsNone(rows[0]["staff_valid_from"])
+        self.assertIsNone(rows[0]["staff_valid_to"])
+        self.assertIsNone(rows[0]["source_published_date"])
+        wrong = html.replace("for the Example Team", "for the Other Team")
+        self.assertEqual(staff.extract_facts(staff.parse_document(wrong, config["url"]), config), [])
+
+    def test_conference_coach_requires_full_name_and_exact_team_relationship(self):
+        config = dict(source("nba_conference_coach"), url="https://healthandperformancemeetings.nba.com/participants/avery-example/")
+        html = '<h1>Avery Example</h1><p>Avery Example recently concluded a season at the helm of the Example Team after being hired as the 12th head coach in franchise history on May 9, 2030.</p>'
+        rows = staff.annotate(staff.parse_document(html, config["url"]), config, html, "2031-01-01T12:00:00+00:00")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["role_code"], "head_coach")
+        self.assertIsNone(rows[0]["staff_valid_from"])
+        self.assertIsNone(rows[0]["source_published_date"])
+        wrong = html.replace("<p>Avery Example", "<p>Another Person")
+        self.assertEqual(staff.extract_facts(staff.parse_document(wrong, config["url"]), config), [])
+
+    def test_conference_ambiguous_or_external_profile_identity_excluded(self):
+        config = dict(source("nba_conference_dietitian"), url="https://healthandperformancemeetings.nba.com/participants/avery-example/")
+        html = '<a href="https://other.test/participants/avery-example/">Avery Example</a><p>Avery is currently serving as the Performance Dietitian for the Example Team.</p>'
+        self.assertEqual(staff.extract_facts(staff.parse_document(html, config["url"]), config), [])
+        html += '<a href="/participants/avery-example/">Avery Example</a><a href="/participants/avery-example/">Another Identity</a>'
+        self.assertEqual(staff.extract_facts(staff.parse_document(html, config["url"]), config), [])
+
+    def test_aggregate_source_diagnostics_never_contain_fact_rows(self):
+        audit = [{"source_id": "synthetic", "sport": "NBA", "status": "collection_or_parse_failed", "rows": 0, "http_status": 403, "reason": "http_403", "requests": 1, "downloaded_bytes": 0, "staff_name_as_reported": "Never Export", "body": "Never Export"}]
+        result = staff.aggregate_source_results(audit)
+        self.assertEqual(result[0]["http_status"], 403)
+        self.assertEqual(result[0]["rows"], 0)
+        self.assertNotIn("Never Export", json.dumps(result))
+
 
 if __name__ == "__main__":
     unittest.main()

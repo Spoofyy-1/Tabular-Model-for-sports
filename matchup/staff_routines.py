@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 import re
 import sys
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -31,6 +31,10 @@ SOURCES = [
      "url": "https://www.nba.com/nets/news/brooklyn-nets-announce-staff-additions-and-promotions-2024"},
     {"source_id": "sixers_current_directory", "sport": "NBA", "organization": "Philadelphia 76ers", "parser": "sixers_directory",
      "url": "https://www.nba.com/sixers/team/staff-directory"},
+    {"source_id": "nba_conference_nutrition_profile", "sport": "NBA", "organization": "Phoenix Suns", "parser": "nba_conference_dietitian",
+     "url": "https://healthandperformancemeetings.nba.com/participants/jesse-mcginley/"},
+    {"source_id": "nba_conference_coach_profile", "sport": "NBA", "organization": "Charlotte Hornets", "parser": "nba_conference_coach",
+     "url": "https://healthandperformancemeetings.nba.com/participants/charles-lee/"},
     {"source_id": "broncos_nutrition_seminar", "sport": "NFL", "organization": "Denver Broncos", "parser": "broncos_seminar",
      "url": "https://www.denverbroncos.com/news/rookie-seminar-nutrition-with-bryan-snyder-17186893"},
     {"source_id": "atp_final_preparation", "sport": "tennis", "organization": None, "parser": "atp_final_preparation",
@@ -153,6 +157,25 @@ def parse_document(html, url):
             blocks.extend(clean(node.get_text(" ", strip=True)) for node in nodes)
         else:
             blocks.extend(clean(line) for line in fragment.get_text("\n", strip=True).splitlines())
+    profile_names = []
+    # The official conference site can render a participant as a WordPress
+    # excerpt. A name must be tied to the exact profile URL, then the role must
+    # occur in a paragraph attributed to that name and the configured team.
+    parsed_url = urlparse(url)
+    if parsed_url.hostname == "healthandperformancemeetings.nba.com" and parsed_url.path.startswith("/participants/"):
+        for anchor in soup.find_all("a", href=True):
+            target = urlparse(urljoin(url, anchor["href"]))
+            name = clean(anchor.get_text(" ", strip=True))
+            if target.hostname == parsed_url.hostname and target.path.rstrip("/") == parsed_url.path.rstrip("/") and re.fullmatch(NAME, name):
+                profile_names.append(name)
+        for heading in soup.find_all(["h1", "h2"]):
+            name = clean(heading.get_text(" ", strip=True))
+            slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+            if re.fullmatch(NAME, name) and slug == parsed_url.path.rstrip("/").rsplit("/", 1)[-1]:
+                profile_names.append(name)
+        for paragraph in soup.find_all("p"):
+            if not paragraph.find_parent(["nav", "footer", "aside"]):
+                blocks.append(clean(paragraph.get_text(" ", strip=True)))
     # Undated directories are observed only at retrieval, never backfilled.
     tables = [[clean(td.get_text(" ", strip=True)) for td in tr.find_all(["td", "th"])] for tr in soup.find_all("tr")]
     for time in soup.find_all("time"):
@@ -172,7 +195,8 @@ def parse_document(html, url):
         if day:
             publication.update(source_modified_date=day, source_modified_at_utc=stamp)
             break
-    return {"blocks": list(dict.fromkeys(filter(None, blocks))), "tables": tables, **publication}
+    return {"blocks": list(dict.fromkeys(filter(None, blocks))), "tables": tables,
+            "profile_names": list(dict.fromkeys(profile_names)), **publication}
 
 
 def extract_facts(document, source):
@@ -196,6 +220,22 @@ def extract_facts(document, source):
         for row in document["tables"]:
             if len(row) == 2 and row[0].casefold() == "dietitian" and re.fullmatch(NAME, row[1]):
                 add(" | ".join(row), "staff_role", role="dietitian", staff=row[1], assertion="current_directory_listing")
+    elif parser in {"nba_conference_dietitian", "nba_conference_coach"}:
+        names = document.get("profile_names", [])
+        if len(names) == 1:
+            name = names[0]
+            organization = re.escape(source["organization"])
+            for block in blocks:
+                if parser == "nba_conference_dietitian":
+                    attributed = block.startswith(name + " ") or block.startswith(name.split()[0] + " ")
+                    matched = re.search(r"\bcurrently serving as the Performance Dietitian for the " + organization + r"\b", block)
+                    role = "performance_dietitian"
+                else:
+                    attributed = block.startswith(name + " ")
+                    matched = re.search(r"\bat the helm of the " + organization + r" after being hired as the \d+(?:st|nd|rd|th) head coach\b", block)
+                    role = "head_coach"
+                if attributed and matched:
+                    add(block, "staff_role", role=role, staff=name, assertion="undated_profile_role_reported")
     elif parser == "broncos_seminar":
         matches = [re.search(r"Director of Team Nutrition (" + NAME + r")", b) for b in blocks]
         matches = [m for m in matches if m]
@@ -258,6 +298,12 @@ def annotate(document, source, html, retrieved):
         if fact["assertion_kind"] == "current_directory_listing":
             row.update(observation_date=retrieved[:10], observation_date_precision="retrieval_date_listing_only")
             row.update(source_published_date=None, source_published_at_utc=None, publication_precision="unknown", publication_basis=None)
+        elif fact["assertion_kind"] == "undated_profile_role_reported":
+            # A biography visible now can describe a previous appointment. Even
+            # a dated appointment in that biography is not a verified historical
+            # publication or a complete employment interval.
+            row.update(observation_date=retrieved[:10], observation_date_precision="retrieval_date_profile_only")
+            row.update(source_published_date=None, source_published_at_utc=None, publication_precision="unknown", publication_basis=None)
         identity = [source["source_id"]] + [fact[k] for k in ("subject_name_as_reported", "staff_name_as_reported", "role_code", "routine_code", "assertion_kind")]
         row["annotation_id"] = digest(json.dumps(identity, ensure_ascii=False))
         rows.append(row)
@@ -267,13 +313,16 @@ def annotate(document, source, html, retrieved):
 class Budget:
     def __init__(self, session):
         self.session, self.requests, self.bytes = session, 0, 0
+        self.last_http_status = None
 
     def get(self, url):
+        self.last_http_status = None
         if self.requests >= MAX_REQUESTS or self.bytes >= MAX_BYTES:
             raise RuntimeError("collection_budget_exhausted")
         self.requests += 1
         # Redirects and retry challenges are audit outcomes, never bypasses.
         with self.session.get(url, timeout=(10, 35), stream=True, allow_redirects=False) as response:
+            self.last_http_status = response.status_code
             if response.status_code != 200:
                 raise RuntimeError("http_" + str(response.status_code))
             if "html" not in response.headers.get("Content-Type", "").lower():
@@ -304,6 +353,12 @@ def write_csv(path, rows):
             writer.writerow({key: "\\N" if value is None else value for key, value in row.items()})
 
 
+def aggregate_source_results(audit):
+    """Public operational diagnostics only: no identity or evidence rows."""
+    allowed = ("source_id", "sport", "status", "rows", "http_status", "reason", "error_type", "requests", "downloaded_bytes", "extracted_article_blocks", "publication_precision")
+    return [{key: item[key] for key in allowed if key in item} for item in audit]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", default="data/matchup/staff_routines")
@@ -317,6 +372,7 @@ def main(argv=None):
         budget = Budget(session)
         for source in SOURCES:
             result = {**source, "status": "not_requested", "rows": 0, "rights_status": RIGHTS}
+            before_requests, before_bytes = budget.requests, budget.bytes
             try:
                 html = budget.get(source["url"])
                 retrieved = datetime.now(timezone.utc).isoformat()
@@ -330,11 +386,15 @@ def main(argv=None):
                 # Never log response bodies, URLs from exceptions, or source rows.
                 result.update(status="collection_or_parse_failed", error_type=type(exc).__name__,
                               reason=str(exc) if isinstance(exc, RuntimeError) and re.fullmatch(r"[a-z_0-9]+", str(exc)) else "details_suppressed")
+            result.update(http_status=budget.last_http_status, requests=budget.requests - before_requests,
+                          downloaded_bytes=budget.bytes - before_bytes)
             audit.append(result)
         counts = Counter(row["sport"] for row in rows)
         summary = {"status": "completed" if rows else "audit_only", "requests": budget.requests, "downloaded_bytes": budget.bytes,
                    "limits": {"requests": MAX_REQUESTS, "bytes": MAX_BYTES, "object_bytes": MAX_OBJECT_BYTES},
                    "sources": len(SOURCES), "sources_with_annotations": sum(a["rows"] > 0 for a in audit),
+                   "source_results": aggregate_source_results(audit),
+                   "source_status_counts": dict(Counter(item["status"] for item in audit)),
                    "annotation_rows": len(rows), "by_sport": dict(counts), "by_type": dict(Counter(r["annotation_type"] for r in rows)),
                    "by_assertion_kind": dict(Counter(r["assertion_kind"] for r in rows)),
                    "known_valid_from_rows": 0, "known_valid_to_rows": 0, "automatic_training_eligible_rows": 0,
