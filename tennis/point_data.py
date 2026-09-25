@@ -100,8 +100,19 @@ def metadata(raw, group):
     out["source_retirement_or_walkover_flag"] = False
     for name in status_cols:
         out["source_retirement_or_walkover_flag"] |= raw[name].astype("string").str.contains(r"\bRET\b|\bW/O\b|\bDEF\b|\bABD\b|retired|walkover", case=False, regex=True, na=False)
-    if out.match_id.isna().any() or out.match_id.duplicated().any():
-        raise ValueError("Missing/duplicate MCP metadata match keys")
+    original_rows = len(out)
+    out = out.drop_duplicates()
+    exact_duplicates = original_rows - len(out)
+    missing = out.match_id.isna() | out.match_id.eq("").fillna(False)
+    conflicting = out.match_id.duplicated(keep=False) & ~missing
+    resolved["key_quality"] = {"normalized_exact_duplicates_removed": exact_duplicates,
+        "missing_match_key_rows_excluded": int(missing.sum()),
+        "conflicting_match_key_rows_excluded": int(conflicting.sum())}
+    # Original metadata remains in source_matches.csv.gz. Never choose one
+    # conflicting identity/date based on input order.
+    out = out.loc[~missing & ~conflicting].copy()
+    if out.empty:
+        raise ValueError("No unambiguous MCP match metadata remains")
     return out, resolved
 
 

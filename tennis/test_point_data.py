@@ -25,6 +25,16 @@ def completed_match():
 
 
 class TennisPoints(unittest.TestCase):
+    def test_metadata_conflicts_are_excluded_without_arbitrary_selection(self):
+        source = pd.DataFrame({"match_id": ["ok", "ok", "conflict", "conflict", None],
+            "Player 1": ["Example One"] * 5, "Player 2": ["Example Two"] * 5,
+            "Date": ["20231201", "20231201", "20231201", "20231202", "20231201"]})
+        result, fields = tennis.metadata(source, "mens_singles")
+        self.assertEqual(result.match_id.tolist(), ["ok"])
+        self.assertEqual(fields["key_quality"]["normalized_exact_duplicates_removed"], 1)
+        self.assertEqual(fields["key_quality"]["conflicting_match_key_rows_excluded"], 2)
+        self.assertEqual(fields["key_quality"]["missing_match_key_rows_excluded"], 1)
+
     def test_date_surface_names_and_source_initial_server_contract(self):
         metadata = match_metadata()
         self.assertEqual(metadata.match_date.iloc[0], pd.Timestamp("2023-12-01"))
