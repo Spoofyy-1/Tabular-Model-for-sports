@@ -25,6 +25,39 @@ def completed_match():
 
 
 class TennisPoints(unittest.TestCase):
+    def test_tiebreak_punctuation_alias_is_unique_and_does_not_use_set_flag(self):
+        raw = completed_match().rename(columns={"TB?": "TB"})
+        raw["TbSet"] = "1"
+        raw["TBpt"] = ""
+        states = tennis.point_states(raw, match_metadata())
+        self.assertFalse(states.pre_tiebreak.any())
+        ambiguous = raw.assign(**{"TB!": "1"})
+        with self.assertRaisesRegex(ValueError, "Ambiguous point header"):
+            tennis.point_states(ambiguous, match_metadata())
+
+    def test_raw_export_without_spreadsheet_convenience_fields(self):
+        raw = completed_match().drop(columns=["TB?", "1stIn", "2ndIn", "isAce", "isDouble", "isSvrWinner"])
+        states = tennis.point_states(raw, match_metadata())
+        self.assertTrue(states.pre_score_prefix_valid.all())
+        self.assertTrue(states.pre_tiebreak.eq(False).all())
+        self.assertTrue(states.label_first_serve_in.isna().all())
+        self.assertTrue(tennis.early_labels(states).label_early_deficit_eligible.iloc[0])
+
+    def test_raw_tiebreak_first_point_is_ambiguous_without_future_inference(self):
+        rows = []
+        for game in range(12):
+            for point in range(4):
+                rows.append({"match_id": "synthetic", "Pt": str(game*4+point+1), "Set1": "0", "Set2": "0",
+                    "Gm1": str((game+1)//2), "Gm2": str(game//2), "Gm#": str(game+1),
+                    "Svr": str(game%2+1), "PtWinner": str(game%2+1), "Pts": "0-0"})
+        rows.extend([{"match_id": "synthetic", "Pt": "49", "Set1": "0", "Set2": "0", "Gm1": "6", "Gm2": "6", "Gm#": "13", "Svr": "1", "PtWinner": "1", "Pts": "0-0"},
+                     {"match_id": "synthetic", "Pt": "50", "Set1": "0", "Set2": "0", "Gm1": "6", "Gm2": "6", "Gm#": "13", "Svr": "2", "PtWinner": "2", "Pts": "1-0"}])
+        states = tennis.point_states(pd.DataFrame(rows), match_metadata())
+        self.assertTrue(states.pre_score_prefix_valid.all())
+        self.assertTrue(pd.isna(states.pre_tiebreak.iloc[-2]))
+        self.assertTrue(states.pre_tiebreak.iloc[-1])
+        self.assertTrue(pd.isna(states.pre_break_point.iloc[-2]))
+
     def test_metadata_conflicts_are_excluded_without_arbitrary_selection(self):
         source = pd.DataFrame({"match_id": ["ok", "ok", "conflict", "conflict", None],
             "Player 1": ["Example One"] * 5, "Player 2": ["Example Two"] * 5,

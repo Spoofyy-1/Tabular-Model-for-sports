@@ -24,7 +24,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from runtime import require_github_hosted_runner
 
 HOURS = ("2026-04-17T14", "2026-04-17T15")
-MAX_BYTES, MAX_OBJECT_BYTES, MAX_REQUESTS = 500_000_000, 390_000_000, 100
+MAX_BYTES, MAX_OBJECT_BYTES, MAX_REQUESTS = 500_000_000, 400_000_000, 100
 LICENSE = "CC-BY-4.0"
 PILOTS = (
     {"slug": "atp-fils-musetti-2026-04-17", "tour": "ATP", "tournament": "Barcelona Open",

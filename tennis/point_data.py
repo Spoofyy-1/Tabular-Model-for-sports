@@ -28,7 +28,7 @@ PIN = "1813a1309b7ed7ebf1c7e884b32bf675d00e4edf"
 RAW = f"https://raw.githubusercontent.com/{REPO}/{PIN}/"
 LICENSE = "CC-BY-NC-SA-4.0"
 METADATA_ALIASES = {"player1_name": ["player1", "player1name"], "player2_name": ["player2", "player2name"], "match_date": ["date", "matchdate"], "surface": ["surface"], "best_of": ["bestof"], "tournament": ["tournament", "event"], "round": ["round"]}
-POINT_COLUMNS = {"match_id", "Pt", "Set1", "Set2", "Gm1", "Gm2", "Gm#", "TB?", "Svr", "PtWinner"}
+POINT_COLUMNS = {"match_id", "Pt", "Set1", "Set2", "Gm1", "Gm2", "Gm#", "Svr", "PtWinner"}
 
 
 def now():
@@ -120,12 +120,14 @@ def point_states(raw, matches):
     raw = raw.copy()
     # Producer dictionaries and historical exports can differ in punctuation.
     # Resolve only a unique exact normalized header; never infer from outcomes.
-    for required in POINT_COLUMNS:
+    for required in POINT_COLUMNS | {"TB?"}:
         if required not in raw:
             normalize = lambda name: re.sub(r"[^a-z0-9]", "", str(name).lower())
             alternatives = [name for name in raw if normalize(name) == normalize(required)]
             if len(alternatives) == 1:
                 raw = raw.rename(columns={alternatives[0]: required})
+            elif len(alternatives) > 1:
+                raise ValueError("Ambiguous point header aliases for " + required)
     if not POINT_COLUMNS.issubset(raw):
         raise ValueError("MCP points missing documented fields: " + str(POINT_COLUMNS - set(raw)) + "; source columns: " + str(list(raw.columns)))
     out = pd.DataFrame(index=raw.index)
@@ -137,6 +139,8 @@ def point_states(raw, matches):
     for source, target in [("Set1", "pre_sets_p1"), ("Set2", "pre_sets_p2"), ("Gm1", "pre_games_p1"), ("Gm2", "pre_games_p2"), ("Svr", "pre_server_player")]:
         out[target] = number(raw, source)
     out["pre_tiebreak"] = flag(raw, "TB?")
+    out["source_point_score_text"] = raw["Pts"].astype("string") if "Pts" in raw else pd.Series(pd.NA, index=raw.index, dtype="string")
+    out["pre_tiebreak_source"] = "documented_source_field" if "TB?" in raw else "conservative_score_syntax"
     out["label_point_winner_player"] = number(raw, "PtWinner")
     out["label_first_serve_in"] = flag(raw, "1stIn")
     out["label_second_serve_in"] = flag(raw, "2ndIn")
@@ -156,7 +160,7 @@ def point_states(raw, matches):
     legal_game_step = out.source_game_number.eq(prior_game) | out.source_game_number.eq(prior_game + 1) | (first & out.source_game_number.eq(1))
     score_columns = ["pre_sets_p1", "pre_sets_p2", "pre_games_p1", "pre_games_p2"]
     integral_scores = out[score_columns].ge(0).all(axis=1) & out[score_columns].mod(1).eq(0).all(axis=1)
-    current_state_valid = out.pre_server_player.isin([1, 2]) & out.source_game_number.ge(1) & out.pre_tiebreak.notna() & integral_scores
+    current_state_valid = out.pre_server_player.isin([1, 2]) & out.source_game_number.ge(1) & integral_scores
     # The validity of the current point's outcome does not affect its pre-point scores.
     bad_winner_before = ~by_match.label_point_winner_player.shift(1).isin([1, 2]) & ~first
     bad = (~contiguous | ~legal_game_step | ~current_state_valid | bad_winner_before).astype(int)
@@ -167,6 +171,23 @@ def point_states(raw, matches):
         wins = out.label_point_winner_player.eq(who).astype(int)
         prior_wins = wins.groupby([out.match_id, out.source_game_number], dropna=False).cumsum() - wins
         out[f"pre_p{who}_points_in_game"] = prior_wins.astype("Float64").where(out.pre_score_prefix_valid)
+    if "TB?" not in raw:
+        # Raw public files omit spreadsheet-derived TB?/serve-result fields.
+        # Never infer the current mode from future points or TbSet's set flag.
+        # A 0-0 game score at tied late-set games is ambiguous (6-all, 12-all,
+        # historical advantage sets); retain null until prior/current score
+        # syntax identifies the mode. Propagate only forward within this game.
+        score = out.source_point_score_text.str.upper().str.strip().str.extract(r"^(0|[1-9][0-9]*|AD|A)\s*[-:]\s*(0|[1-9][0-9]*|AD|A)$")
+        standard = score.isin(["0", "15", "30", "40", "AD", "A"]).all(axis=1)
+        integers = score[0].str.fullmatch(r"[0-9]+", na=False) & score[1].str.fullmatch(r"[0-9]+", na=False)
+        late_tied = out.pre_games_p1.eq(out.pre_games_p2) & out.pre_games_p1.ge(6)
+        mode = pd.Series(pd.NA, index=out.index, dtype="boolean")
+        mode.loc[~late_tied & integral_scores] = False
+        nonzero_standard = standard & ~score.eq("0").all(axis=1)
+        few_prior_points = (out.pre_p1_points_in_game + out.pre_p2_points_in_game).lt(7).fillna(False)
+        mode.loc[late_tied & nonzero_standard & few_prior_points] = False
+        mode.loc[late_tied & integers & ~standard] = True
+        out["pre_tiebreak"] = mode.groupby([out.match_id, out.source_game_number], dropna=False).ffill()
     # Validate a game boundary against only the preceding point's outcome.
     # A new source game ID cannot silently reset an unfinished or corrupt game.
     same_game = out.source_game_number.eq(prior_game) & ~first
@@ -185,7 +206,9 @@ def point_states(raw, matches):
     set_winner2 = previous_winner2 & (previous_tb | (final_games2.ge(6) & (final_games2 - final_games1).ge(2)))
     set_ended = (set_winner1 | set_winner2).fillna(False)
     unchanged_scores = out[score_columns].eq(previous[score_columns]).all(axis=1)
-    same_game_valid = unchanged_scores & out.pre_tiebreak.eq(previous.pre_tiebreak) & (out.pre_tiebreak.eq(True) | out.pre_server_player.eq(previous.pre_server_player))
+    mode_consistent = out.pre_tiebreak.eq(previous.pre_tiebreak).fillna(True)
+    server_consistent = out.pre_tiebreak.ne(False).fillna(True) | out.pre_server_player.eq(previous.pre_server_player)
+    same_game_valid = unchanged_scores & mode_consistent & server_consistent
     boundary_valid = (previous_winner1 | previous_winner2).fillna(False)
     boundary_valid &= out.pre_games_p1.eq(final_games1.where(~set_ended, 0)) & out.pre_games_p2.eq(final_games2.where(~set_ended, 0))
     boundary_valid &= out.pre_sets_p1.eq(previous.pre_sets_p1 + set_winner1.fillna(False).astype(int)) & out.pre_sets_p2.eq(previous.pre_sets_p2 + set_winner2.fillna(False).astype(int))
@@ -213,6 +236,23 @@ def point_states(raw, matches):
     ambiguous_dates = out.match_date.dt.strftime("%Y-%m-%d").isin(["2023-12-31", "2024-01-01", "2024-12-31", "2025-01-01"])
     out.loc[ambiguous_dates, "evaluation_split"] = "date_precision_unresolved"
     return out
+
+
+def canonical_point_keys(raw):
+    """Keep original source separately; exclude whole ambiguous histories."""
+    clean = raw.drop_duplicates().copy()
+    missing_id = clean.match_id.isna() | clean.match_id.eq("").fillna(False)
+    numeric = pd.to_numeric(clean.Pt, errors="coerce")
+    bad_number = numeric.isna() | numeric.lt(1) | numeric.mod(1).ne(0)
+    duplicate_key = pd.DataFrame({"match_id": clean.match_id, "point": numeric}).duplicated(keep=False)
+    bad_matches = set(clean.loc[(bad_number | duplicate_key) & ~missing_id, "match_id"])
+    exclude = missing_id | clean.match_id.isin(bad_matches)
+    quality = {"original_source_rows": len(raw), "exact_source_duplicates_removed": len(raw) - len(clean),
+               "excluded_ambiguous_history_rows": int(exclude.sum()), "excluded_ambiguous_matches": len(bad_matches)}
+    result = clean.loc[~exclude].copy()
+    if result.empty:
+        raise ValueError("No unambiguous point histories remain")
+    return result, quality
 
 
 def early_labels(states):
@@ -351,13 +391,15 @@ def main():
             numeric_point = pd.to_numeric(raw_points.Pt, errors="coerce")
             raw_points = raw_points.assign(_numeric_order=numeric_point).sort_values(["match_id", "_numeric_order"]).drop(columns="_numeric_order")
             tables[f"{group}/{era}/source_points.csv.gz"] = write_csv(raw_points, output / group / era / "source_points.csv.gz")
-            states = point_states(raw_points, matches)
+            canonical_points, point_key_quality = canonical_point_keys(raw_points)
+            states = point_states(canonical_points, matches)
             labels = early_labels(states)
             tables[f"{group}/{era}/point_states.csv.gz"] = write_csv(states, output / group / era / "point_states.csv.gz")
             labels_parts.append(labels)
             player_parts.append(count_player_context(states))
             count = {"group": group, "era": era, "point_rows": len(states), "matches": int(states.match_id.nunique()), "date_min": states.match_date.min().isoformat() if states.match_date.notna().any() else None, "date_max": states.match_date.max().isoformat() if states.match_date.notna().any() else None, "valid_prefix_rows": int(states.pre_score_prefix_valid.sum()), "metadata_unmapped_rows": int(states.competition_group.isna().sum()), "first_serve_status_rows": int(states.label_first_serve_in.notna().sum()), "source_winner_disagreement_rows": int(states.source_winner_flag_agrees.eq(False).fillna(False).sum()), "early_labels_eligible_matches": int(labels.label_early_deficit_eligible.sum()), "split_counts": {str(k): int(v) for k,v in states.evaluation_split.value_counts().items()}}
             counts.append(count)
+            count["point_key_quality"] = point_key_quality
             provenance.update(rows=len(raw_points), schema={name: str(dtype) for name,dtype in raw_points.dtypes.items()})
             manifests.append(provenance)
             print(json.dumps(count), flush=True)

@@ -2,7 +2,7 @@ name: Audit tennis market CSV history
 on:
   push:
     branches: [main]
-    paths: ['tennis/market_data.py', 'tennis/test_market_data.py', '.github/workflows/tennis-markets.yml']
+    paths: ['tennis/market_data.py', 'tennis/test_market_data.py', 'tennis/activity_data.py', 'tennis/test_activity_data.py', '.github/workflows/tennis-markets.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,6 +22,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r context_requirements.txt
       - run: python -m unittest discover -s tennis -p test_market_data.py
+      - run: python -m unittest discover -s tennis -p test_activity_data.py
       - name: Collect bounded PMXT pilot
         env:
           PYTHONUNBUFFERED: '1'
@@ -29,6 +30,8 @@ jobs:
           mkdir -p dist
           set -o pipefail
           python tennis/market_data.py --output-dir data/tennis/pmxt_market_pilot 2>&1 | tee dist/tennis_markets_build.log
+          python tennis/activity_data.py --input-dir data/tennis/pmxt_market_pilot
+          cp data/tennis/pmxt_market_pilot/activity_summary.json dist/tennis_activity_summary.json
           python tennis/package.py --dataset markets
       - uses: actions/upload-artifact@v7.0.1
         if: always()

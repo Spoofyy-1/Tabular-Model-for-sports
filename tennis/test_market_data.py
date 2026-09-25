@@ -118,9 +118,9 @@ class TennisMarketTests(unittest.TestCase):
 
     def test_request_and_byte_limits_cannot_expand(self):
         budget = market.Budget()
-        budget.admit(390_000_000, market.MAX_OBJECT_BYTES)
+        budget.admit(400_000_000, market.MAX_OBJECT_BYTES)
         with self.assertRaises(ValueError):
-            budget.admit(390_000_001, market.MAX_OBJECT_BYTES)
+            budget.admit(400_000_001, market.MAX_OBJECT_BYTES)
         budget.received(390_000_000)
         with self.assertRaises(ValueError):
             budget.admit(110_000_001, market.MAX_OBJECT_BYTES)
