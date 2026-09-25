@@ -1,8 +1,16 @@
 # Bounded NFL attendance pilot using Wikidata
 
-Audit date: 2026-09-25. This document records the source contract and the first hosted attempt's aggregate result below. The collector is `nfl_attendance/collect.py`, invoked without arguments, and local validation uses fabricated in-memory tests. Research used primary documentation, rendered entity pages and local source code. No entity JSON, sports data archives or attendance rows were downloaded or saved locally. Collection runs only on a GitHub-hosted runner.
+Audit date: 2026-09-25. This document records the source contract and the hosted attempts' aggregate results below. The collector is `nfl_attendance/collect.py`, invoked without arguments, and local validation uses fabricated in-memory tests. Research used primary documentation, rendered entity pages and local source code. No entity JSON, sports data archives or attendance rows were downloaded or saved locally. Collection runs only on a GitHub-hosted runner.
 
-An initial pilot targets five Super Bowl event candidates in calendar years 2020–2024. This is a small championship-game sample, not NFL attendance coverage. At source-review time, primary pages exposed an attendance statement for three candidates. The first hosted attempt received no event entities, so this page inspection has not become a collected attendance dataset.
+## Latest verified hosted coverage
+
+[Release nfl-attendance-36190862077-1](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/nfl-attendance-36190862077-1) completed with **partial** coverage. All five fixed event entities were received and all five matched the existing schedule with verified venue identities. Three have reported attendance counts; two inspected entities have no attendance property. Nominal home/away roles are independently verified on two joins, with missing role evidence left explicit on the others. These are five selected championship events, not a general NFL attendance panel.
+
+There were no source failures, seven HTTP attempts and 8,717,269 decoded bytes, including 63,549 Wikidata bytes. Entity prerequisites were checked before downloading the pinned schedule archive. Thirty-eight synthetic tests passed; hosted results additionally verify actual source availability and joins. No capacity ratio, physical occupancy, crowd-noise measurement, causal analysis or model training was produced.
+
+The corrected collector distinguishes failed/unattempted entities from fetched entities with absent claims. It preserves sanitized API error codes, HTTP status and retry guidance, and stops without retry on a source error. The earlier failed attempt below contributes no attendance records to these counts.
+
+The fixed pilot targets five Super Bowl event candidates in calendar years 2020–2024. At source-review time, primary pages exposed an attendance statement for three candidates; the corrected hosted run independently collected three available counts. The first attempt below received no event entities and remains excluded.
 
 ## First hosted attempt: no attendance collected
 
@@ -12,13 +20,13 @@ The recorded exception is `RuntimeError: Entity API returned an error; collectio
 
 The release's five `missing_property` classifications are **not evidence that five event entities lack P1110**. They were produced by parsing empty fallback objects after no entity was received. The first candidate encountered an API error; the others were not fetched after collection stopped. Treat all five attendance-availability states as unobserved in this release. The earlier rendered-page findings in the table below remain a separate source audit.
 
-Before a later hosted attempt, make these diagnostic changes; they are recommendations only and are not implemented by this documentation update:
+The corrected collector applies these diagnostic changes:
 
 - Preserve a bounded, sanitized API `error.code`, HTTP status and validated `Retry-After` (seconds or HTTP-date), alongside the already recorded response hash and byte count. Avoid dumping the response body or free-text error details into public logs. Keep the existing stop-on-error behavior.
-- Track transport and entity-validation status per candidate: `received`, `api_error`, `http_error`, `invalid_entity` or `not_fetched_after_stop`. Reserve `missing_property` for a successfully received, validated entity whose claims actually lack P1110. Preserve separate unknown-value, no-value, invalid and conflicting claim states.
+- Track transport and entity-validation status per candidate, distinguishing received, failed and unattempted sources. Reserve `missing_property` for a successfully received, validated entity whose claims actually lack P1110. Preserve separate unknown-value, no-value, invalid and conflicting claim states.
 - Fetch the five bounded event prerequisites first. Validate identity, date, participant crosswalk, chain and available attendance before downloading the 8.65 MB schedule archive. If no candidate can support a count/game join, publish an audit-only result with `schedule_fetch_status=not_attempted_no_eligible_event`. If eligible candidates exist, then fetch the pinned schedule and apply the existing exact joins. Do not expand the allowlist or automatically retry failed requests.
 
-Add synthetic regressions for a provider error on the first entity, an unfetched candidate, a received entity without P1110, and the skipped schedule download when no eligible event remains. No collector mutation was made in this pass, avoiding an immediate workflow retrigger.
+Synthetic regressions now cover first/later provider failures, unfetched candidates, received entities without P1110, observed-only denominators, and skipped schedule downloads when prerequisites fail or no eligible count remains. The corrected hosted attempt followed the diagnostic code review; no automatic request retry was introduced.
 
 | Calendar year | Event | Verified entity identifier | Attendance statement in inspected page |
 | --- | --- | --- | --- |

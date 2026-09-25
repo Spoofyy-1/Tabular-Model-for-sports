@@ -28,7 +28,7 @@ The [historical tennis-court pilot](https://github.com/kennynakao/Tabular-Model-
 
 The [tennis weather alignment pilot](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/tennis-weather-36187582212-1) remains **audit only**: 35 CC0 structured claims, zero accepted match joins and zero joined weather buckets. Of two fixed candidates, one lacks a required court claim and the other has no unique match satisfying the exact source checks. Existing daily weather remains separate; no playing-hour exposure is inferred. [Source contracts and exclusions](docs/TENNIS_WEATHER_ALIGNMENT_RESEARCH.md).
 
-The [sparse NFL attendance pilot](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/nfl-attendance-36188533446-1) is **diagnostic only**: the source API returned an error before any event entity was received, so zero attendance records or game joins were collected. The five candidate rows are unresolved collection attempts, not evidence that those games lacked reported attendance. [Contract and follow-up](docs/NFL_CC0_ATTENDANCE_PILOT.md).
+The [latest sparse NFL attendance pilot](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/nfl-attendance-36190862077-1) verifies five Super Bowl game/venue links and three reported attendance counts. Two inspected entities have no attendance property; nominal home/away roles are verified for two of five joins. This is a partial championship-game sample, not broad NFL crowd coverage. The earlier failed API attempt remains diagnostic only. [Contract and verified coverage](docs/NFL_CC0_ATTENDANCE_PILOT.md).
 
 | Cleaned model table | Development, through 2024 | Holdout, 2025 onward | Total |
 | --- | ---: | ---: | ---: |
