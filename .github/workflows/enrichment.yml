@@ -1,0 +1,99 @@
+name: Collect injury and play-level CSV data
+on:
+  push:
+    branches: [main]
+    paths: ['enrichment/**', '.github/workflows/enrichment.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sports-enrichment
+  cancel-in-progress: false
+jobs:
+  collect:
+    name: Enrich ${{ matrix.dataset }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        dataset: [nba_injuries, nfl_plays, nba_crosswalk]
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v6.0.1
+        if: matrix.dataset == 'nba_injuries'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: python -m pip install -r context_requirements.txt
+      - if: matrix.dataset == 'nba_injuries'
+        run: python -m pip install -r enrichment/requirements-nba-injuries.txt
+      - name: Synthetic transformation tests
+        run: |
+          python -m unittest discover -s enrichment -p 'test_*.py'
+          python enrichment/nfl_plays.py --self-test
+      - name: Collect new CSV tables remotely
+        env:
+          DATASET: ${{ matrix.dataset }}
+          PYTHONUNBUFFERED: '1'
+        run: |
+          mkdir -p dist
+          set -o pipefail
+          {
+            case "$DATASET" in
+              nba_injuries)
+                python enrichment/nba_injuries.py --start 2024-12-01 --end 2024-12-03 --max-reports 3
+                python enrichment/nba_injuries.py --start 2021-10-18 --end 2024-12-31 --max-reports 1000
+                ;;
+              nfl_plays) python enrichment/nfl_plays.py --start-season 1999 --end-season 2026 ;;
+              nba_crosswalk) python enrichment/nba_crosswalk.py ;;
+            esac
+          } 2>&1 | tee "dist/${DATASET}_enrichment_build.log"
+      - name: Package available outputs and diagnostics
+        if: always()
+        env:
+          DATASET: ${{ matrix.dataset }}
+        run: |
+          if [ -f "data/enrichment/$DATASET/enrichment_summary.json" ]; then
+            python enrichment/package.py --dataset "$DATASET"
+          fi
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: enrichment-${{ matrix.dataset }}
+          path: dist/
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: warn
+  publish:
+    needs: collect
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: enrichment-*
+          path: dist
+          merge-multiple: true
+      - name: Publish enrichment CSVs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.collect.result }}
+        run: |
+          set -euo pipefail
+          tag="enrichment-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          printf '%s\n' 'Additional NBA injury-report entries, candidate player-ID mappings, and NFL play-level context in compressed CSV. Collection and storage run entirely in GitHub. Schemas, source licenses, provenance, missingness and quality reports accompany each archive.' '' 'NBA PDF header timestamps do not independently certify historical web availability. Crosswalks are upstream candidates, not authoritative identities. NFL participation/FTN derivatives retain CC-BY-SA-4.0 attribution and share-alike terms. Postgame measurements are never same-game pregame features. These collectors do not train models.' > notes.md
+          if [ "$RESULT" = success ]; then
+            gh release create "$tag" dist/* --target "$GITHUB_SHA" --title "Additional sports CSV data ${GITHUB_RUN_NUMBER}" --notes-file notes.md --latest=false
+          else
+            printf '%s\n' 'INCOMPLETE BUILD. Review per-dataset diagnostics and coverage before use.' >> notes.md
+            gh release create "$tag" dist/* --target "$GITHUB_SHA" --title "Enrichment diagnostics ${GITHUB_RUN_NUMBER}" --notes-file notes.md --prerelease --latest=false
+          fi

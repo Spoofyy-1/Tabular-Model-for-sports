@@ -1,0 +1,2 @@
+# Python 3.10+ and Java 8+ required. Install only on GitHub-hosted runners.
+nbainjuries @ git+https://github.com/mxufc29/nbainjuries.git@57603738fb28185e3c1bf4d71d75af0f85514ac1
