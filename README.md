@@ -56,6 +56,8 @@ The separate **Expand sports context datasets** workflow collects more informati
 
 Current-game shots, tracking results and attendance are postgame observations. They cannot enter a pregame model directly. The expansion preserves missing values and unmapped IDs, and does not make these new fields automatically model-ready. Development remains through calendar 2024; 2025 onward stays held out.
 
+Code-triggered builds can reuse the first validated NBA/odds context snapshot when the collector and shared source files match exactly. Reused archives retain their original manifests and retrieval dates, and every archive hash is checked on the runner. To refresh upstream data, manually run **Expand sports context datasets** with `reuse_release` blank.
+
 Collector details: [NBA event context](docs/NBA_CONTEXT.md), [NBA shots and defender matchups](docs/NBA_MATCHUPS.md), [NFL context](docs/NFL_CONTEXT.md), and [odds coverage](docs/ODDS_EXPANSION.md). Remaining priorities are recorded in [data gaps](docs/DATA_GAPS.md).
 
 ## Experiment

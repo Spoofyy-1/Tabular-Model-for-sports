@@ -147,11 +147,23 @@ class NFLContextTests(unittest.TestCase):
         self.assertEqual(result.loc[0, "report_status"], "Questionable")
 
     def test_injury_schema_empty_and_source_season_safeguards(self):
-        for source in [self.injury().drop(columns=["date_modified"]), self.injury().iloc[:0]]:
+        for source in [self.injury().drop(columns=["gsis_id"]), self.injury().iloc[:0]]:
             with self.assertRaises(ValueError):
                 context.normalize_injuries(source, 2025, self.injury_schedule())
         with self.assertRaisesRegex(ValueError, "different season"):
             context.normalize_injuries(self.injury(), 2026, self.injury_schedule())
+
+    def test_new_injury_export_omits_timestamp_without_substitution(self):
+        source = self.injury().drop(columns=["date_modified"])
+        result = context.normalize_injuries(source, 2025, self.injury_schedule())
+        self.assertFalse(result.loc[0, "source_modification_column_present"])
+        self.assertTrue(pd.isna(result.loc[0, "date_modified"]))
+        self.assertTrue(pd.isna(result.loc[0, "source_snapshot_at_utc"]))
+        self.assertEqual(str(result["source_snapshot_at_utc"].dtype), "datetime64[ns, UTC]")
+        self.assertEqual(result.loc[0, "modification_timestamp_status"], "source_column_not_provided")
+        self.assertFalse(result.loc[0, "modified_before_kickoff"])
+        self.assertFalse(result.loc[0, "verified_asof"])
+        self.assertEqual(result.loc[0, "report_status"], "Questionable")
 
 
 if __name__ == "__main__":

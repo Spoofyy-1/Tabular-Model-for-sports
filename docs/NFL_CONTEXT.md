@@ -22,6 +22,10 @@ The baseline already contains 2009–2024 injury reports, so this layer collects
 only the additional seasons. Missing assets are reported explicitly; empty
 published files and incompatible schemas fail validation. Coverage reports list
 published weeks, missing modification times, status counts and unmatched games.
+The new injury exporter omits per-row modification timestamps, documented in
+[upstream issue 100](https://github.com/nflverse/nflverse-rosters/issues/100).
+The normalized timestamp remains null, with `source_column_not_provided` status.
+Release upload times are never substituted as report publication times.
 
 All canonical tables use GSIS `player_id`, preserve the original player/team
 identifiers, and normalize relocation/team aliases to the existing project's
@@ -75,6 +79,7 @@ Sources and source terms:
 PFR advanced metrics, combine and draft tables are documented candidates for a
 later update after specific third-party terms review. FTN participation is a
 different, season-end data product with CC-BY-SA-4.0 obligations and is not
-included here. Injury `date_modified` is retained unchanged and parsed into
-`source_snapshot_at_utc`; even `modified_before_kickoff=true` does not establish
+included here. Injury `date_modified`, when supplied, is retained unchanged and parsed into
+`source_snapshot_at_utc`; otherwise both are null with the missing source column
+explicitly flagged. Even `modified_before_kickoff=true` does not establish
 historical publication time. No report gaps are imputed as healthy status.

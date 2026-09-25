@@ -104,13 +104,19 @@ def normalize(frame, table, source_season=None):
     """Pure transformation; may be tested only with synthetic frames locally."""
     frame = frame.copy()
     if table == "injuries":
-        required = {"week", "date_modified", "team", "gsis_id"}
+        required = {"week", "team", "gsis_id"}
         if not required.issubset(frame.columns) or not {"game_type", "season_type"}.intersection(frame.columns):
-            raise ValueError("Injury schema requires week, date_modified, team, gsis_id and season type")
+            raise ValueError("Injury schema requires week, team, gsis_id and season type; source columns=" + repr(sorted(frame.columns)))
         if not {"report_status", "practice_status", "report_primary_injury", "practice_primary_injury"}.intersection(frame.columns):
             raise ValueError("Injury schema contains no recognized report or practice status fields")
         if "full_name" in frame and "player_name" not in frame:
             frame["player_name"] = frame["full_name"]
+        frame["source_modification_column_present"] = "date_modified" in frame
+        # nflverse-rosters #100 documents that the new 2025+ exporter omits
+        # this column with no equivalent row timestamp. Never substitute the
+        # release upload time or infer a publication date from week/kickoff.
+        if "date_modified" not in frame:
+            frame["date_modified"] = pd.Series(pd.NA, index=frame.index, dtype="string")
     if "season" not in frame and source_season is not None:
         frame["season"] = source_season
     if "season" not in frame:
@@ -148,6 +154,10 @@ def normalize(frame, table, source_season=None):
         raise ValueError("Injury week must be nonnegative and present")
     timestamp_column = "date_modified" if table == "injuries" else "dt" if "dt" in frame else None
     frame["source_snapshot_at_utc"] = pd.to_datetime(frame[timestamp_column], utc=True, errors="coerce", format="mixed") if timestamp_column else pd.NaT
+    if table == "injuries":
+        frame["modification_timestamp_status"] = "source_value_parsed_unverified"
+        frame.loc[frame["source_snapshot_at_utc"].isna(), "modification_timestamp_status"] = "source_value_null_or_unparseable"
+        frame.loc[~frame["source_modification_column_present"], "modification_timestamp_status"] = "source_column_not_provided"
     frame["verified_asof"] = False
     frame["pregame_feature_enabled"] = False
     frame["sport"] = "NFL"
@@ -157,6 +167,8 @@ def normalize(frame, table, source_season=None):
         "source_loaded_timestamp_unverified" if "dt" in frame else
         "historical_week_snapshot_without_publication_timestamp"
     )
+    if table == "injuries":
+        frame.loc[frame["source_snapshot_at_utc"].isna(), "availability_status"] = "injury_report_without_available_modification_timestamp"
     return frame
 
 
@@ -168,7 +180,7 @@ def normalize_injuries(frame, source_season, schedule):
     if not frame["season"].eq(source_season).all():
         raise ValueError("Injury source file contains a different season than requested")
     frame = attach_games(frame, schedule)
-    frame["modified_before_kickoff"] = frame["source_snapshot_at_utc"].lt(frame["game_date"]) & frame["game_date_time_known"].fillna(False)
+    frame["modified_before_kickoff"] = frame["source_snapshot_at_utc"].lt(frame["game_date"]) & frame["game_date_time_known"].astype("boolean").fillna(False)
     frame["record_level"] = "injury_report_final_snapshot_unverified"
     return frame
 
@@ -194,6 +206,8 @@ def field_meaning(column, table):
         "game_date_time_known": "True when source schedule provides kickoff time.",
         "source_snapshot_at_utc": "Parsed source dt, when present; upstream loaded timestamp, not independent point-in-time verification.",
         "date_modified": "Original injury source modification value; not guaranteed publication/ingestion time.",
+        "source_modification_column_present": "Whether the source file actually supplied date_modified; false means the normalized null column was added for schema consistency.",
+        "modification_timestamp_status": "Distinguishes absent source column, null/unparseable value and parsed but unverified timestamp.",
         "modified_before_kickoff": "Source modification timestamp precedes exact schedule kickoff; does not establish point-in-time availability.",
         "dt": "Unmodified upstream snapshot timestamp string (2025 onward depth charts).",
         "verified_asof": "Always false: historical availability has not been independently verified.",
@@ -262,6 +276,7 @@ def write_table(frame, name, out):
     if "modified_before_kickoff" in frame:
         info["rows_modified_before_exact_kickoff"] = int(frame["modified_before_kickoff"].sum())
         info["rows_with_missing_or_invalid_modification_timestamp"] = int(frame["source_snapshot_at_utc"].isna().sum())
+        info["modification_timestamp_status_counts"] = {str(k): int(v) for k, v in frame["modification_timestamp_status"].value_counts(dropna=False).items()}
         info["weeks_by_season"] = {str(k): sorted(int(w) for w in part["week"].dropna().unique()) for k, part in frame.groupby("season")}
         for column in ["report_status", "practice_status"]:
             if column in frame:
@@ -388,6 +403,8 @@ def main():
     manifest["caveats"].append("Injury release assets for 2025 and 2026 supersede earlier source-unavailable notes. These are report snapshots, not a complete history of report revisions. date_modified and modified_before_kickoff do not prove pregame availability. Published weeks, null timestamps, unmatched games and status counts are reported.")
     manifest["documentation"]["injuries"] = DOCS + "reference/load_injuries.html"
     manifest["documentation"]["injury_release_inventory"] = "https://api.github.com/repos/nflverse/nflverse-data/releases/tags/injuries"
+    manifest["documentation"]["injury_missing_timestamps"] = "https://github.com/nflverse/nflverse-rosters/issues/100"
+    manifest["caveats"].append("The new 2025+ injury exporter omits per-row modification timestamps (upstream issue100). Missing timestamps are explicit nulls with source_column_not_provided status, never substituted from file upload time.")
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
     (out / "DATA_DICTIONARY.json").write_text(json.dumps(dictionary, indent=2))
     (out / "context_summary.json").write_text(json.dumps(summary, indent=2))
