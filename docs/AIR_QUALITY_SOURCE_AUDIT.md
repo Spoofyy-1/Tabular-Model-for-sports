@@ -20,6 +20,17 @@ EPA [updated particulate AQI breakpoints in 2024](https://www.epa.gov/system/fil
 
 These observations could support a later test of environmental context, particularly for outdoor events, after a historically valid venue-to-reporting-area mapping and date alignment are verified. Indoor ventilation, roof operation, time outdoors and athlete exposure remain unknown. No automatic game/player joins, causal claims, betting edge or model fitting are part of this collection. Pre-2024 rows, calendar 2024 and calendar 2025 are separate fit-candidate, calibration-candidate and holdout partitions; those labels do not make retrospective observations pregame-available.
 
-## Publication status
+## Verified hosted release
 
-Collector implementation and hosted validation are pending. Record actual completed years, unique county/day rows, invalid/conflicting groups, source transfer totals and asset hashes after the hosted run. Do not substitute catalog estimates for collected coverage.
+[Release air-quality-36193653295-1](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/air-quality-36193653295-1) completed successfully for all 26 requested years. The [aggregate report](https://github.com/kennynakao/Tabular-Model-for-sports/releases/download/air-quality-36193653295-1/air_quality_summary.json) records 8,143,646 source rows, **8,141,094 canonical county/day rows** and **2,552 quarantined rows**. No identical source duplicates or conflicting county/date groups were reported. Quarantined rows occur in 2000–2006; their detailed reason fields remain in the cloud CSVs. The aggregate does not break down those reasons, so no specific cause is asserted here.
+
+| Calendar partition | Canonical county/day rows |
+| --- | ---: |
+| 2000–2023 fit candidates | 7,487,844 |
+| 2024 calibration candidates | 329,597 |
+| 2025 holdout | 323,653 |
+| Total | 8,141,094 |
+
+There are 985–1,134 distinct reporting-area keys per year; this is not full coverage of all US counties, a deduplicated union across years, or proof of stable historical boundaries. All observed source categories agree with their corresponding AQI index bands. That does not verify pollutant concentration conversions or historical calculation versions. Every year spans January 1 through December 31 somewhere in its data, without implying every county has every day.
+
+The run transferred **41,534,305 bytes in 26 requests**, with no errors or retries. All 26 synthetic tests and hosted checks passed. The release contains 78 CSV.gz files: raw, canonical and quarantine tables for each year, plus schemas and public-domain attribution. The archive is **142,815,615 bytes**, SHA-256 `8e5d06ad8f97611bae5c0076ffb1beb2f78b98951d01a9619993dd83bb1090bb`; consult its asset manifest for member hashes. It remains a prerelease context dataset with zero game joins and no training. Actual source ingestion, sorting, validation and storage occurred only on GitHub-hosted infrastructure.

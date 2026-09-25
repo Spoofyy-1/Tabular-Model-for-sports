@@ -1,12 +1,14 @@
 # Tabular Model for Sports
 
-NBA and NFL player-stat forecasting and team-win research, with tennis context, public historical data, chronological evaluation, and separate model bundles. Dataset ingestion and CSV exports run on **GitHub-hosted Actions runners**. The owner additionally authorized a finite training job on the existing **Azure A100**, with outputs in private Blob Storage. Local machines contain code and documentation only.
+NBA and NFL player-stat forecasting and team-win research, with tennis context, public historical data, chronological evaluation, and separate model bundles. Dataset ingestion and CSV exports run on **GitHub-hosted Actions runners**. The current scope is **data collection only**; Azure sign-in and A100 training are paused. Local machines contain code and documentation only.
 
 **Status:** the [first cloud build](https://github.com/Spoofyy-1/Tabular-Model-for-sports/actions/runs/36055555015) succeeded. [Datasets, trained models, and evaluation reports are published](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/snapshot-36055555015-1). There is no verified profitable betting backtest.
 
 **CSV datasets are published:** [download locations and schemas](docs/CSV_RELEASE.md). The [CSV release](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/csv-36170200182-1) preserves all baseline/context tables as compressed CSV, along with source metadata. A [new enrichment release](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/enrichment-36170742592-1) adds official NBA injury entries, NFL play context and identity candidates. Keep these assets in the cloud.
 
 Use the [current CSV data index](docs/CURRENT_DATA_INDEX.md) to choose verified source/context releases and avoid overlapping or diagnostic-only bundles. It records source rights, temporal roles and the important join/missingness limits in one place.
+
+**Historical air-quality context is published:** [EPA county-day CSVs, 2000–2025](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/air-quality-36193653295-1) contain 8,141,094 validated rows and 2,552 quarantined rows. Source records, sorted yearly tables, schemas and hashes are preserved; 2025 stays separate as holdout. These are regional retrospective observations, with no game or athlete-exposure joins yet. [Coverage and source definitions](docs/AIR_QUALITY_SOURCE_AUDIT.md).
 
 **Tennis and market data are published:** [verified releases and coverage](docs/TENNIS_RELEASE.md) include 1,873,115 cleaned tennis points, 432,733 tennis market updates and 25,905 NBA/NFL market observations. Tennis point data are noncommercial research only. The latest owner instruction is **data collection only; GPU training is deferred**. A [bounded two-hour collection loop](docs/COLLECTION_LOOP.md) expands public attendance evidence, venue/weather context and officiating data.
 
