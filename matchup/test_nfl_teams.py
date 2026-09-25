@@ -31,6 +31,41 @@ def panel(dates=None):
 
 
 class NFLTeamTests(unittest.TestCase):
+    def test_documented_source_schema_without_no_play_keeps_real_plays(self):
+        raw = plays().drop(columns="no_play")
+        no_play = raw.iloc[[0]].copy()
+        no_play["play_id"] = "900"
+        no_play["play_type"] = "no_play"
+        row = nfl.game_metrics(pd.concat([raw, no_play], ignore_index=True)).set_index("team").loc["AAA"]
+        self.assertEqual(row.observed_off_plays, 3)
+        self.assertEqual(row.observed_off_called_passes, 2)
+        self.assertEqual(row.observed_off_fourth_down_decisions, 2)
+
+    def test_missing_kneel_flag_is_unknown_and_excluded(self):
+        raw = plays().drop(columns=["no_play", "qb_kneel"])
+        row = nfl.game_metrics(raw).set_index("team").loc["AAA"]
+        self.assertEqual(row.observed_off_plays, 0)
+        self.assertEqual(row.observed_off_eligible_type_rows_with_unknown_kneel_or_spike, 4)
+
+    def test_boolean_text_flags_are_supported_without_imputing_unknown(self):
+        raw = plays().drop(columns="no_play")
+        raw["qb_kneel"] = "False"
+        raw["qb_spike"] = "false"
+        raw.loc[0, "qb_spike"] = "True"
+        raw.loc[1, "qb_kneel"] = "unknown"
+        row = nfl.game_metrics(raw).set_index("team").loc["AAA"]
+        self.assertEqual(row.observed_off_plays, 1)
+        self.assertEqual(row.observed_off_eligible_type_rows_with_unknown_kneel_or_spike, 1)
+
+    def test_empty_play_or_feature_coverage_cannot_publish_success(self):
+        games = panel().assign(pbp_join="both")
+        features = nfl.lagged_features(games)
+        self.assertTrue(nfl.validate_coverage(games, features)["passed"])
+        with self.assertRaises(ValueError):
+            nfl.validate_coverage(games.assign(observed_off_plays=0), features)
+        with self.assertRaises(ValueError):
+            nfl.validate_coverage(games, features.assign(pre_off_pass_play_rate_last10=float("nan")))
+
     def test_blank_team_on_auxiliary_event_cannot_create_an_opponent(self):
         raw = plays()
         bad = raw.iloc[:1].copy()

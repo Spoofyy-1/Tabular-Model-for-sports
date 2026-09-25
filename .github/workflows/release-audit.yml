@@ -1,0 +1,22 @@
+name: Mark incomplete NFL release as diagnostic
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/release-audit.yml', 'docs/INCOMPLETE_NFL_RELEASE.md']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  annotate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Preserve the failed data for audit and state the defect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release edit matchup-36179258148-1 --prerelease --latest=false --title "NFL style diagnostic: empty play metrics" --notes-file docs/INCOMPLETE_NFL_RELEASE.md

@@ -39,10 +39,17 @@ RATIOS = {
     "fourth_down_go_rate": ("fourth_down_go", "fourth_down_decisions"),
 }
 NUMERIC = {"down", "qtr", "score_differential", "yardline_100", "pass_attempt", "rush_attempt", "qb_dropback", "qb_scramble", "qb_kneel", "qb_spike", "no_play", "shotgun", "no_huddle", "yards_gained", "air_yards", "sack", "qb_hit", "interception"}
+BINARY = {"pass_attempt", "rush_attempt", "qb_dropback", "qb_scramble", "qb_kneel", "qb_spike", "no_play", "shotgun", "no_huddle", "sack", "qb_hit", "interception"}
 
 
 def numeric(frame, name):
-    return pd.to_numeric(frame[name], errors="coerce") if name in frame else pd.Series(np.nan, index=frame.index)
+    if name not in frame:
+        return pd.Series(np.nan, index=frame.index)
+    values = pd.to_numeric(frame[name], errors="coerce")
+    if name in BINARY:
+        booleans = frame[name].astype("string").str.lower().map({"true": 1, "false": 0})
+        values = values.fillna(booleans)
+    return values
 
 
 def game_metrics(raw):
@@ -60,7 +67,13 @@ def game_metrics(raw):
         frame[name] = numeric(frame, name)
     identity_valid = (frame.posteam.notna() & frame.defteam.notna() & frame.posteam.ne(frame.defteam)
                       & frame.posteam.str.strip().ne("") & frame.defteam.str.strip().ne(""))
-    live = identity_valid & frame.no_play.eq(0) & frame.qb_kneel.eq(0) & frame.qb_spike.eq(0)
+    # nflfastR documents no_play as a play_type category. The pinned archive
+    # has no standalone no_play column, so require explicitly eligible types.
+    # If an optional flag exists, its value must also explicitly be zero.
+    eligible_type = frame.play_type.isin(["pass", "run", "punt", "field_goal"])
+    eligible_no_play = frame.no_play.eq(0) if "no_play" in raw else eligible_type
+    known_non_kneel_spike = frame.qb_kneel.eq(0) & frame.qb_spike.eq(0)
+    live = identity_valid & eligible_type & eligible_no_play & known_non_kneel_spike
     scrimmage = live & frame.play_type.isin(["pass", "run"]) & frame.down.between(1, 4)
     called_pass = scrimmage & (frame.play_type.eq("pass") | frame.qb_dropback.eq(1).fillna(False) | frame.qb_scramble.eq(1).fillna(False) | frame.pass_attempt.eq(1).fillna(False))
     designed_run = scrimmage & frame.play_type.eq("run") & frame.qb_dropback.eq(0) & frame.qb_scramble.eq(0) & frame.pass_attempt.eq(0)
@@ -73,6 +86,7 @@ def game_metrics(raw):
                 "early_plays": early, "early_passes": early & called_pass, "neutral_early_plays": neutral_early,
                 "neutral_early_passes": neutral_early & called_pass, "red_zone_plays": red_zone,
                 "red_zone_passes": red_zone & called_pass, "fourth_down_decisions": fourth, "fourth_down_go": fourth & scrimmage}
+    counters["eligible_type_rows_with_unknown_kneel_or_spike"] = eligible_type & (~frame.qb_kneel.isin([0, 1]) | ~frame.qb_spike.isin([0, 1]))
     for name in ["shotgun", "no_huddle"]:
         counters[name + "_known"] = scrimmage & frame[name].isin([0, 1])
         counters[name + "_yes"] = scrimmage & frame[name].eq(1)
@@ -210,6 +224,24 @@ def lagged_features(team_games):
     return features.sort_values(["game_date", "game_id", "team"]).reset_index(drop=True)
 
 
+def validate_coverage(joined, features):
+    """Fail publication when schema/filter errors leave an unusable panel."""
+    eligible = joined.label_result.notna() & joined.pbp_join.eq("both")
+    positive = joined.observed_off_plays.gt(0).fillna(False)
+    denominator = int(eligible.sum())
+    fraction = float((eligible & positive).sum() / denominator) if denominator else 0.0
+    if not denominator or fraction < 0.5:
+        raise ValueError("NFL coverage gate failed: fewer than half of matched completed team-games contain observed offensive plays")
+    season_counts = joined.loc[eligible, ["season"]].assign(positive=positive.loc[eligible]).groupby("season").positive.sum()
+    if season_counts.eq(0).any():
+        raise ValueError("NFL coverage gate failed: a matched completed source season has no positive-play team-games")
+    feature_rows = int(features.pre_off_pass_play_rate_last10.notna().sum())
+    if feature_rows == 0:
+        raise ValueError("NFL coverage gate failed: no team-game has a nonmissing lagged passing-style feature")
+    return {"matched_completed_team_games": denominator, "positive_play_fraction": fraction,
+            "lagged_pass_style_rows": feature_rows, "minimum_positive_play_fraction": 0.5, "passed": True}
+
+
 def download(name, directory, budget):
     require_github_hosted_runner()
     tag, asset, size, digest = ARCHIVES[name]
@@ -280,7 +312,10 @@ def main():
         for member, raw in csv_members(play_path, lambda name: bool(re.search(r"/pbp/season=\d{4}/data\.csv\.gz$", name))):
             metrics = game_metrics(raw)
             metrics["source_partition_member"] = member
-            partitions.append({"source_member": member, "source_play_rows": len(raw), "team_game_metric_rows": len(metrics)})
+            partitions.append({"source_member": member, "source_play_rows": len(raw), "team_game_metric_rows": len(metrics),
+                               "observed_offensive_plays": int(metrics.observed_off_plays.sum()),
+                               "no_play_filter": "explicit_flag_and_documented_play_type" if "no_play" in raw else "documented_play_type_no_standalone_flag",
+                               "unknown_kneel_or_spike_rows": int(metrics.observed_off_eligible_type_rows_with_unknown_kneel_or_spike.sum())})
             parts.append(metrics)
             print(json.dumps(partitions[-1]), flush=True)
     if not parts:
@@ -289,6 +324,7 @@ def main():
     print(json.dumps({"metric_reconciliation": reconciliation}), flush=True)
     joined = schedule.merge(metrics, on=["game_id", "team", "opponent"], how="left", validate="one_to_one", indicator="pbp_join")
     features = lagged_features(joined)
+    coverage_checks = validate_coverage(joined, features)
     keys = ["game_id", "team", "opponent", "game_date", "season", "evaluation_split"]
     labels = joined[keys + [name for name in joined if name.startswith("label_")]].copy()
     observed = joined[keys + [name for name in joined if name.startswith("observed_")] + ["pbp_join", "source_partition_members"]].copy()
@@ -303,6 +339,7 @@ def main():
                "team_games_without_pbp": int(joined.pbp_join.eq("left_only").sum()), "pbp_team_games_outside_schedule": len(unmapped_metrics),
                "date_partitions": features.evaluation_split.value_counts().to_dict(), "coach_name_rows": int(context.source_coach_name.notna().sum()), "tables": tables, "partitions": partitions,
                "metric_reconciliation": reconciliation,
+               "coverage_checks": coverage_checks,
                "training_performed": False, "strict_prior_utc_calendar_day_lag": True, "source_historical_publication_verified": False,
                "limitations": ["Latest revised PBP snapshots do not establish their historical publication or model vintage; lagged values are candidates, not verified as-of features.",
                    "Pinned PBP selection has no EPA or win-probability columns. Efficiency means observed yards per play/dropback/run, not EPA or causal skill.",
@@ -310,6 +347,7 @@ def main():
                    "Holdout features can use earlier held-out games as a chronological online protocol; holdout outcomes do not affect development rows. No fitting or tuning occurs.",
                    "Styles are pooled-count ratios with explicit denominators. Missing fields stay unknown, not zero. Neutral early downs are first/second down in quarters 1–3 with score differential within seven points.",
                    "Pass calls include dropbacks/sacks/scrambles; designed runs exclude scrambles. Kneels/spikes/no-plays and unrecognized downs are excluded. Fourth-down rate is go attempts among recognized go/punt/field-goal decisions, not fourth-down optimality.",
+                   "The pinned PBP has no standalone no_play flag: source play_type explicitly selects pass/run/punt/field_goal and excludes no_play/qb_kneel/qb_spike. Missing kneel/spike flags remain unknown and exclude affected rows, with counts retained.",
                    "Offense style labels use declared fixed descriptive thresholds: pass share >=0.62 pass-heavy; <=0.45 run-heavy; otherwise balanced, requiring 3 prior games and 100 plays. They are not learned or validated archetypes.",
                    "Defense metrics describe opponents' realized offense against the defense. Opponent interactions are arithmetic candidate comparisons, not matchup outcome probabilities.",
                    "Coach names appear only in the source schedule audit with unverified publication timing; no invented coaching philosophy, roster injury effect or private routine is inferred.",
