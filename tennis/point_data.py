@@ -117,8 +117,17 @@ def metadata(raw, group):
 
 
 def point_states(raw, matches):
+    raw = raw.copy()
+    # Producer dictionaries and historical exports can differ in punctuation.
+    # Resolve only a unique exact normalized header; never infer from outcomes.
+    for required in POINT_COLUMNS:
+        if required not in raw:
+            normalize = lambda name: re.sub(r"[^a-z0-9]", "", str(name).lower())
+            alternatives = [name for name in raw if normalize(name) == normalize(required)]
+            if len(alternatives) == 1:
+                raw = raw.rename(columns={alternatives[0]: required})
     if not POINT_COLUMNS.issubset(raw):
-        raise ValueError("MCP points missing documented fields: " + str(POINT_COLUMNS - set(raw)))
+        raise ValueError("MCP points missing documented fields: " + str(POINT_COLUMNS - set(raw)) + "; source columns: " + str(list(raw.columns)))
     out = pd.DataFrame(index=raw.index)
     out["match_id"] = raw.match_id.astype("string")
     out["source_point_number"] = number(raw, "Pt")
