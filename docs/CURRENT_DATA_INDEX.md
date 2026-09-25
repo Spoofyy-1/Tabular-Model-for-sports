@@ -1,0 +1,47 @@
+# Current CSV data index
+
+This index points to the preferred verified releases and distinguishes source data, derived context and diagnostics. It contains release metadata only. Keep actual archives and extracted CSVs on GitHub-hosted runners or other explicitly authorized cloud storage; do not download them to the owner's Mac. GPU training remains paused.
+
+Rows overlap across releases. A player/game with new crowd or weather columns is not an additional independent game. A successful workflow can publish an audit with no usable data, so check the aggregate coverage report as well as the workflow result.
+
+## Core and contextual tables
+
+| Data family | Preferred release | Role and important limits |
+| --- | --- | --- |
+| NBA and NFL stat lines | [Base CSV bundles](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/csv-36170200182-1) | `csv-base-nba.tar.gz` and `csv-base-nfl.tar.gz` contain normalized source tables and existing modeling views. Keep roster-listed/DNP rows distinct from eligible outcomes. [Schemas and counts](CSV_RELEASE.md). |
+| NBA events, shots and defenders; NFL depth and tracking | [Context CSV bundles](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/csv-36170200182-1) | Separate NBA event, NFL context and defender-matchup archives. Same-game events and defender results are outcomes/context, not automatic pregame features. NBA source ID systems require the documented crosswalk. |
+| Official NBA injuries and NFL plays/participation | [Enrichment CSVs](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/enrichment-36170742592-1) | Dated NBA report entries, NFL play context and identity candidates. A missing report is not a healthy roster. Some participation data were published after the season; FTN source rights remain separate. [Definitions](CSV_RELEASE.md). |
+| NBA team styles and team injury aggregates | [NBA/injury matchup bundles](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/matchup-36178068271-1) | Valid NBA and injury outputs in a partial release; its failed NFL job is not the preferred NFL source. [Matchup protocol](TEAM_MATCHUP_RESEARCH.md). |
+| NFL team styles | [Validated NFL team bundle](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/matchup-36179718171-1) | 14,552 team/game rows, including six without PBP. Prior-game style features stay separate from win labels and retrospective coaching/venue audit fields. |
+| Schedule density and continuity | [Schedule context](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/schedule-context-36181271988-1) | Listed starts in prior 72-hour/7-day/14-day windows, nominal home/away runs and NFL source coach-name changes. Not actual travel, sleep or verified employment tenures. [Definitions](SCHEDULE_CONTEXT.md). |
+| NBA attendance and player outcomes | [NBA crowd comparisons](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/crowd-performance-36186734904-1) | 847,926 linked roster-listed rows; 666,823 quality-screened outcomes. Counts, DNPs and separate game denominators are retained. Source capacity is not historically verified occupancy. [Coverage](NBA_CROWD_PERFORMANCE.md). |
+| NFL weather and player outcomes | [NFL weather comparisons](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/weather-performance-36184196625-1) | 475,586 player/game joins and descriptive summaries. Wind mph is documented; temperature conversions explicitly assume Fahrenheit. Actual weather is not a historical forecast. [Coverage](NFL_WEATHER_PERFORMANCE_RELEASE.md). |
+
+## Tennis, markets and public contextual evidence
+
+| Data family | Preferred release | Role and important limits |
+| --- | --- | --- |
+| Tennis points and pressure states | [Tennis point CSVs](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/tennis-points-36173714850-1) | 1,873,115 cleaned points in 11,775 retained histories. MCP is CC BY-NC-SA and stays noncommercial. Point order is not a live wall-clock feed. Descriptive pressure/early-deficit statistics are not proven player skills or trading signals. [Contract](TENNIS_DATA.md). |
+| Tennis venues and daily weather | [Original venue/weather collection](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/extras-36173901119-1) | Partial collection with 29,953 ERA5 daily rows for seven coordinate pairs. Place metadata and weather terms are separate. These rows have not been validated as weather during individual matches. Do not immediately repeat rate-limited weather requests. |
+| Tennis contextual note candidates | [Tennis notes](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/tennis-notes-36175530428-1) | Weather, crowd, interruptions, medical and other keyword mentions. Candidates include negation and retrospective language; they are not verified incidents. MCP restrictions remain. |
+| Public spectators and officials | [Officials/attendance evidence](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/extras-36175530329-1) | 68,723 assignment rows and 13 public spectator associations. Not a census of attendees or a crowd-noise measurement; unmatched dates remain flagged. |
+| Staff and routines | [Public staff/routine annotations](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/matchup-36178593411-1) | Twelve cited candidate annotations across the three sports. Employment validity intervals and routine adherence remain unresolved; no automatic historical game join. |
+| Coaching announcements | [Dated announcement annotations](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/coach-events-36182978719-1) | Five NFL appointment/agreement annotations, three with resolved dates. Announcement, agreement and effective tenure are different events. NBA sources denied access. [Interpretation](COACH_APPOINTMENT_RELEASE.md). |
+| Tennis market observations | [Tennis market CSVs with transaction references](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/tennis-markets-36174160110-1) | 432,733 observed updates for two reviewed markets. A transaction reference is not guaranteed to be a unique fill; message activity is not complete traded volume. These 2026 observations stay outside pre-2025 development. |
+| NBA/NFL market observations | [Sports market CSVs](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/sports-markets-36174160216-1) | 25,905 observations for a narrow reviewed market sample. Preserve scheduled-start checks, quote/last-trade distinctions, unmapped contracts and unavailable execution costs. [Coverage](TENNIS_RELEASE.md). |
+
+## Diagnostic releases that must not become model inputs
+
+- [Earlier NFL team-style diagnostic](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/matchup-36179258148-1): zero observed play metrics. Use the validated NFL team release above instead.
+- [Historical tennis court pilot](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/court-context-36183174897-1): 18 OSM element/place/snapshot observations, all missing requested surface/indoor/covering/lighting tags. They are not 18 verified courts or condition observations. Collection stopped on provider limits; ODbL remains separate.
+- [Tennis weather alignment audit](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/tennis-weather-36187582212-1): 35 structured CC0 claims, zero accepted match joins and zero joined weather buckets. The earlier alignment release overlaps these facts. [Unresolved identity checks](TENNIS_WEATHER_ALIGNMENT_RESEARCH.md).
+- [Initial NFL attendance diagnostic](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/nfl-attendance-36188533446-1): zero event entities received after an API error; zero attendance records. Its five candidate placeholders do not establish missing source claims. Check [the pilot log](NFL_CC0_ATTENDANCE_PILOT.md) for any later verified attempt.
+
+## Consumption rules
+
+1. Select a release by its verified coverage, then check the archive/member hashes and schemas on the cloud runner. Do not concatenate overlapping versions or source and derived copies.
+2. Keep IDs as strings and use each table's declared null convention, generally literal `\N`. Preserve zero, false, empty text, absent rows and unknown observations as distinct states.
+3. Use the documented calendar splits: pre-2024 fit data, calendar 2024 calibration, and 2025 onward holdout where supplied. Some descriptive exports group development through 2024; that grouping does not override a later model's split protocol.
+4. Join on validated IDs and compatible time/date semantics. A season label, tournament start date, publication date and actual game/match date are not interchangeable.
+5. Whitelist historical predictors explicitly. Same-game outcomes, actual attendance/weather, retrospective annotations and current staff/capacity snapshots cannot silently become pregame features.
+6. Carry each source's license, attribution, publication uncertainty and missingness flags into derivatives. Nothing in this index establishes commercial betting rights, a causal effect or profitability.
