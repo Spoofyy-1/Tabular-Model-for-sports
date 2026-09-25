@@ -1,8 +1,24 @@
 # Bounded NFL attendance pilot using Wikidata
 
-Audit date: 2026-09-25. This is a source and implementation contract; no hosted collection results are claimed here. The collector is `nfl_attendance/collect.py`, invoked without arguments, and local validation uses fabricated in-memory tests. Only primary documentation, rendered entity pages and local source code were reviewed. No entity JSON, sports data archives or attendance rows were downloaded or saved locally. Collection runs only on a GitHub-hosted runner.
+Audit date: 2026-09-25. This document records the source contract and the first hosted attempt's aggregate result below. The collector is `nfl_attendance/collect.py`, invoked without arguments, and local validation uses fabricated in-memory tests. Research used primary documentation, rendered entity pages and local source code. No entity JSON, sports data archives or attendance rows were downloaded or saved locally. Collection runs only on a GitHub-hosted runner.
 
-An initial pilot can cover five Super Bowl event candidates in calendar years 2020–2024. This is a small championship-game sample, not NFL attendance coverage. Primary pages currently expose an attendance statement for three candidates; a hosted direct-claims audit must verify current availability and report missing values explicitly.
+An initial pilot targets five Super Bowl event candidates in calendar years 2020–2024. This is a small championship-game sample, not NFL attendance coverage. At source-review time, primary pages exposed an attendance statement for three candidates. The first hosted attempt received no event entities, so this page inspection has not become a collected attendance dataset.
+
+## First hosted attempt: no attendance collected
+
+The [nfl-attendance-36188533446-1 release](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/nfl-attendance-36188533446-1) reports `status=audit_only`, zero received source entities, zero exact schedule joins and zero attendance/game rows. The hosted process downloaded the pinned schedule, then received an API error instead of the first Wikidata entity and stopped without retry. Its aggregate report records three HTTP attempts and 8,654,196 decoded bytes, including a 476-byte Wikidata error response. Workflow completion means the diagnostic artifacts were published; it does not mean attendance collection succeeded.
+
+The recorded exception is `RuntimeError: Entity API returned an error; collection stopped without retry`. The collector did not preserve the provider's error code or `Retry-After`, so the cause is unresolved. Do not infer a rate limit, invalid request or unavailable data from the generic exception alone. No additional requests or rerun were made for this documentation update.
+
+The release's five `missing_property` classifications are **not evidence that five event entities lack P1110**. They were produced by parsing empty fallback objects after no entity was received. The first candidate encountered an API error; the others were not fetched after collection stopped. Treat all five attendance-availability states as unobserved in this release. The earlier rendered-page findings in the table below remain a separate source audit.
+
+Before a later hosted attempt, make these diagnostic changes; they are recommendations only and are not implemented by this documentation update:
+
+- Preserve a bounded, sanitized API `error.code`, HTTP status and validated `Retry-After` (seconds or HTTP-date), alongside the already recorded response hash and byte count. Avoid dumping the response body or free-text error details into public logs. Keep the existing stop-on-error behavior.
+- Track transport and entity-validation status per candidate: `received`, `api_error`, `http_error`, `invalid_entity` or `not_fetched_after_stop`. Reserve `missing_property` for a successfully received, validated entity whose claims actually lack P1110. Preserve separate unknown-value, no-value, invalid and conflicting claim states.
+- Fetch the five bounded event prerequisites first. Validate identity, date, participant crosswalk, chain and available attendance before downloading the 8.65 MB schedule archive. If no candidate can support a count/game join, publish an audit-only result with `schedule_fetch_status=not_attempted_no_eligible_event`. If eligible candidates exist, then fetch the pinned schedule and apply the existing exact joins. Do not expand the allowlist or automatically retry failed requests.
+
+Add synthetic regressions for a provider error on the first entity, an unfetched candidate, a received entity without P1110, and the skipped schedule download when no eligible event remains. No collector mutation was made in this pass, avoiding an immediate workflow retrigger.
 
 | Calendar year | Event | Verified entity identifier | Attendance statement in inspected page |
 | --- | --- | --- | --- |
