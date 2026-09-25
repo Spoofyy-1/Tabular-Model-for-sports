@@ -1,0 +1,92 @@
+name: Expand sports context datasets
+
+on:
+  push:
+    branches: [main]
+    paths: ['context/**', 'context_requirements.txt', '.github/workflows/expand-data.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sports-context-expansion
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: Expand ${{ matrix.dataset }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        dataset: [nba, nfl, odds, matchups]
+    env:
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install collection dependencies
+        run: python -m pip install -r context_requirements.txt
+      - name: Check source syntax
+        run: |
+          python -m compileall -q context
+          python -m unittest discover -s context -p 'test_*.py'
+      - name: Collect and validate remote context
+        env:
+          DATASET: ${{ matrix.dataset }}
+        run: |
+          mkdir -p dist
+          set -o pipefail
+          {
+            case "$DATASET" in
+              nba) python context/nba_context.py --start 2002 --end 2026 ;;
+              nfl) python context/nfl_context.py --start-season 2001 --end-season 2026 ;;
+              odds) python context/odds_context.py --release-tag snapshot-36055555015-1 --output-dir data/context/odds ;;
+              matchups) python context/nba_matchups.py --start 1996 --end 2025 ;;
+            esac
+            python context/package_context.py --dataset "$DATASET"
+          } 2>&1 | tee "dist/${DATASET}_context_build.log"
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: context-release-${{ matrix.dataset }}
+          path: dist/
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: warn
+
+  publish:
+    name: Publish context-data snapshot
+    needs: collect
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: context-release-*
+          path: dist
+          merge-multiple: true
+      - name: Publish context release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_RESULT: ${{ needs.collect.result }}
+        run: |
+          set -euo pipefail
+          tag="context-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if [ "$BUILD_RESULT" = success ]; then
+            printf '%s\n' 'Additional NBA/NFL context and historical-odds audits, collected and processed entirely on GitHub-hosted runners.' '' 'NBA: play-by-play, schedule/venue context, shots and offensive-player/defender matchup records. NFL: tracking metrics, depth-chart archives and 2025-onward injury snapshots. Odds: event/player/time validation and bounded coverage inventory.' '' 'Archives include source provenance, schemas, quality flags and aggregate summaries. These are context datasets, not newly trained models. Current-game tracking and actual attendance are retrospective; no direct pregame availability is claimed.' '' 'The existing model parameters and 2025-onward holdout results remain unchanged. All quote candidates still require payout, rule, fee and execution audits before betting-return calculations.' > release-notes.md
+            gh release create "$tag" dist/* --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Expanded sports context ${GITHUB_RUN_NUMBER}" --notes-file release-notes.md --latest=false
+          else
+            printf '%s\n' 'INCOMPLETE CONTEXT BUILD. Review logs and per-dataset manifests. Successful datasets may be present; this is not a complete validated context release. No baseline model was retrained.' > release-notes.md
+            gh release create "$tag" dist/* --repo "$GH_REPO" --target "$GITHUB_SHA" --title "Context diagnostics ${GITHUB_RUN_NUMBER}" --notes-file release-notes.md --prerelease --latest=false
+          fi

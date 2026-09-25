@@ -43,6 +43,21 @@ The ingestion and training entry points enforce the hosted-runner restriction. D
 | `model-nba.tar.gz` | NBA model bundle and generated evaluation outputs |
 | `model-nfl.tar.gz` | NFL model bundle and generated evaluation outputs |
 
+## Additional context collection
+
+The separate **Expand sports context datasets** workflow collects more information without refitting the original model bundles. Its outputs are published in separate `context-*` releases, sorted and partitioned with source manifests, schemas, identity checks and temporal flags.
+
+| Archive | Additional information |
+| --- | --- |
+| `context-nba.tar.gz` | Play-by-play, shot/event proxies, schedules, venues and gaps between games |
+| `context-matchups.tar.gz` | Shot coordinates and actual offensive-player/defender matchup statistics, with explicit NBA-to-ESPN game mappings |
+| `context-nfl.tar.gz` | Next Gen Stats weekly tracking summaries, historical depth charts and updated injury snapshots |
+| `context-odds.tar.gz` | Existing quote sample identity/timing audit and aggregate Kalshi coverage inventory |
+
+Current-game shots, tracking results and attendance are postgame observations. They cannot enter a pregame model directly. The expansion preserves missing values and unmapped IDs, and does not make these new fields automatically model-ready. Development remains through calendar 2024; 2025 onward stays held out.
+
+Collector details: [NBA event context](docs/NBA_CONTEXT.md), [NBA shots and defender matchups](docs/NBA_MATCHUPS.md), [NFL context](docs/NFL_CONTEXT.md), and [odds coverage](docs/ODDS_EXPANSION.md). Remaining priorities are recorded in [data gaps](docs/DATA_GAPS.md).
+
 ## Experiment
 
 Development data include all available dates **before January 1, 2025 UTC**. Model parameters are fitted using dates before January 1, 2024; the complete 2024 calendar year calibrates residual intervals. Dates on or after January 1, 2025 form the held-out evaluation. These are calendar-date boundaries, not season boundaries.

@@ -2,12 +2,89 @@
   "research_date": "2026-09-24",
   "development_end_exclusive": "2025-01-01T00:00:00Z",
   "sources": [
-    {"id": "nba_stats", "url": "https://github.com/sportsdataverse/hoopR-nba-data", "distribution": "https://github.com/sportsdataverse/sportsdataverse-data/releases/tag/espn_nba_player_boxscores", "coverage": "Requested season-ending years 2002-2026", "status": "remote_ingestion_implemented", "license": "Preserve upstream CC BY 4.0 attribution and distribution-repository license; manifests capture copies"},
-    {"id": "nfl_stats", "url": "https://github.com/nflverse/nflverse-data", "coverage": "Requested seasons 1999-2025; legacy 1999-2000 retained but excluded from initial models", "status": "remote_ingestion_implemented", "license": "Preserve nflverse source licenses and attribution per downloaded category"},
-    {"id": "odds_api_props", "url": "https://the-odds-api.com/historical-odds-data/", "earliest_documented_props": "2023-05-03", "status": "paid_access_not_purchased", "limitation": "Five-minute snapshots; specific bookmaker and market coverage varies"},
-    {"id": "kalshi", "url": "https://docs.kalshi.com/getting_started/historical_data", "status": "optional_research_collector_disabled_in_public_build", "limitation": "Candles lack fillable depth and historical fee/rule verification; no 2023 conventional player-prop history claimed"},
-    {"id": "polymarket_us", "url": "https://docs.polymarket.us/api-reference/price-history/get-price-history", "status": "documented_not_ingested", "limitation": "Separate product and API from global Polymarket; historical charts do not validate execution"},
-    {"id": "prizepicks", "url": "https://www.prizepicks.com/help-center/payouts", "status": "no_verified_official_bulk_historical_api", "limitation": "Do not substitute even-money pseudo-prices for product-specific lineup payouts"},
-    {"id": "parlay_sample", "url": "https://github.com/JacobiusMakes/sports-odds-datasets", "license": "CC BY 4.0", "status": "remote_quarantined_feasibility_sample", "limitation": "Official event/player matching and price semantics unverified; zero ROI-eligible rows"}
+    {
+      "id": "nba_stats",
+      "url": "https://github.com/sportsdataverse/hoopR-nba-data",
+      "distribution": "https://github.com/sportsdataverse/sportsdataverse-data/releases/tag/espn_nba_player_boxscores",
+      "coverage": "Requested season-ending years 2002-2026",
+      "status": "remote_ingestion_implemented",
+      "license": "Preserve upstream CC BY 4.0 attribution and distribution-repository license; manifests capture copies"
+    },
+    {
+      "id": "nfl_stats",
+      "url": "https://github.com/nflverse/nflverse-data",
+      "coverage": "Requested seasons 1999-2025; legacy 1999-2000 retained but excluded from initial models",
+      "status": "remote_ingestion_implemented",
+      "license": "Preserve nflverse source licenses and attribution per downloaded category"
+    },
+    {
+      "id": "odds_api_props",
+      "url": "https://the-odds-api.com/historical-odds-data/",
+      "earliest_documented_props": "2023-05-03",
+      "status": "paid_access_not_purchased",
+      "limitation": "Five-minute snapshots; specific bookmaker and market coverage varies"
+    },
+    {
+      "id": "kalshi",
+      "url": "https://docs.kalshi.com/getting_started/historical_data",
+      "status": "optional_research_collector_disabled_in_public_build",
+      "limitation": "Candles lack fillable depth and historical fee/rule verification; no 2023 conventional player-prop history claimed"
+    },
+    {
+      "id": "polymarket_us",
+      "url": "https://docs.polymarket.us/api-reference/price-history/get-price-history",
+      "status": "documented_not_ingested",
+      "limitation": "Separate product and API from global Polymarket; historical charts do not validate execution"
+    },
+    {
+      "id": "prizepicks",
+      "url": "https://www.prizepicks.com/help-center/payouts",
+      "status": "no_verified_official_bulk_historical_api",
+      "limitation": "Do not substitute even-money pseudo-prices for product-specific lineup payouts"
+    },
+    {
+      "id": "parlay_sample",
+      "url": "https://github.com/JacobiusMakes/sports-odds-datasets",
+      "license": "CC BY 4.0",
+      "status": "remote_quarantined_feasibility_sample",
+      "limitation": "Official event/player matching and price semantics unverified; zero ROI-eligible rows"
+    },
+    {
+      "id": "nba_play_context",
+      "url": "https://github.com/sportsdataverse/sportsdataverse-data/releases/tag/espn_nba_pbp",
+      "coverage": "Requested season-ending years 2002-2026",
+      "status": "cloud_only_context_collector",
+      "fields": "Play events, shooting coordinates, actor IDs; schedules/venues in companion release",
+      "limitation": "Postgame events must be lagged; not verified historical publication snapshots"
+    },
+    {
+      "id": "nba_shots_matchups",
+      "url": "https://github.com/shufinskiy/nba_data",
+      "coverage": "Shot files requested season-start 1996-2025; matchup files available from 2017",
+      "license": "Apache-2.0 repository; preserve upstream attribution and applicable NBA terms",
+      "status": "cloud_only_context_collector",
+      "limitation": "Official NBA IDs differ from ESPN; game mapping audited, player mapping not fabricated; actual defender assignments are retrospective"
+    },
+    {
+      "id": "nfl_nextgen",
+      "url": "https://nflreadr.nflverse.com/reference/load_nextgen_stats.html",
+      "coverage": "Available source seasons from 2016",
+      "status": "cloud_only_context_collector",
+      "limitation": "Weekly realized tracking summaries; week-zero season summaries stored separately"
+    },
+    {
+      "id": "nfl_depth",
+      "url": "https://nflreadr.nflverse.com/articles/dictionary_depth_charts.html",
+      "coverage": "Requested 2001-2026",
+      "status": "cloud_only_context_collector",
+      "limitation": "2001-2024 weekly records; 2025+ timestamped source loads are not independently verified as-of publication times"
+    },
+    {
+      "id": "nfl_injury_update",
+      "url": "https://github.com/nflverse/nflverse-data/releases/tag/injuries",
+      "coverage": "2025-2026 files now listed in current upstream release; complements baseline2009-2024",
+      "status": "cloud_only_context_collector",
+      "limitation": "Final report snapshots preserve source date_modified; verified_asof remains false"
+    }
   ]
 }
