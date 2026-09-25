@@ -24,6 +24,8 @@ The [historical tennis-court pilot](https://github.com/kennynakao/Tabular-Model-
 
 [NBA attendance/performance CSVs](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/crowd-performance-36186734904-1) link 847,926 roster-listed player/game rows across 32,179 games. Quality checks admit 666,823 outcome rows, including 643,269 with positive integral attendance; 169 failed player/game links remain audited. The 77,057 descriptive summaries separate players, seasons, neutral sites and calendar evaluation periods. Reported attendance and source capacity do not establish actual occupancy. [Coverage, denominators and limits](docs/NBA_CROWD_PERFORMANCE.md).
 
+The [tennis weather alignment pilot](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/tennis-weather-36187582212-1) remains **audit only**: 35 CC0 structured claims, zero accepted match joins and zero joined weather buckets. Of two fixed candidates, one lacks a required court claim and the other has no unique match satisfying the exact source checks. Existing daily weather remains separate; no playing-hour exposure is inferred. [Source contracts and exclusions](docs/TENNIS_WEATHER_ALIGNMENT_RESEARCH.md).
+
 | Cleaned model table | Development, through 2024 | Holdout, 2025 onward | Total |
 | --- | ---: | ---: | ---: |
 | NBA | 620,323 | 46,636 | 666,959 |
