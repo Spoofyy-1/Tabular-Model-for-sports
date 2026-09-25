@@ -2,7 +2,26 @@
 
 This collector prepares retrospective CSV comparisons using the existing hash-pinned NBA player/game archive and 25 pinned ESPN-derived schedule assets. Collection and transformation run only on GitHub-hosted runners. The source transfer is capped at 120 MB; no source dataset is stored or processed on the owner's Mac.
 
-Hosted coverage has not yet been verified for this collector. A normal release requires the collector's coverage gates to pass as well as a successful workflow. Diagnostic outputs remain prereleases.
+Published and verified: [crowd-performance-36186734904-1](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/crowd-performance-36186734904-1). The hosted workflow and all declared coverage gates passed. The compressed CSV archive is 32,037,792 bytes. Thirty-one synthetic checks passed before collection; the hosted run verified the actual source hashes, schemas and coverage.
+
+## Verified coverage
+
+| Measure | Count |
+| --- | ---: |
+| Canonical schedule/base game links | 32,198 |
+| Linked roster-listed player/game rows | 847,926 |
+| Distinct games represented by linked player rows | 32,179 |
+| Distinct linked players | 2,577 |
+| Excluded player rows without a validated schedule link | 169 |
+| Eligible player outcomes | 666,823 |
+| Eligible rows with positive integral reported attendance | 643,269 |
+| Distinct games represented by those positive-attendance rows | 30,974 |
+| Player/attendance descriptive summary rows | 77,057 |
+| Separate attendance-band denominator rows | 191 |
+
+Eligible outcomes comprise 591,641 pre-2024 rows, 28,546 calendar-2024 rows and 46,636 held-out rows from 2025 onward. The linked roster panel includes 730,094 reported appearances and 117,832 explicit DNP records. Eligibility additionally requires an observed boxscore and the documented quality checks; it is not identical to the roster panel or the original modeling table.
+
+Of 32,290 source schedule rows, 92 remain unmatched or quarantined. There are 1,207 reported zeros in attendance, 9,262 missing capacities and 6,437 ratios above one. Those schedule-level counts include audit rows and must not be presented as counts of eligible player games. No fractional count outcomes or fractional attendance/capacity values were found. Sources transferred 107,170,501 bytes on the hosted runner, below the 120 MB cap.
 
 ## Tables and interpretation
 

@@ -22,6 +22,8 @@ The [historical tennis-court pilot](https://github.com/kennynakao/Tabular-Model-
 
 [NFL weather/performance CSVs](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/weather-performance-36184196625-1) join 475,586 player/game records across 7,273 games and provide 8,280 descriptive comparison rows. There are 340,486 open-air rows with recorded weather. Wind units are documented; temperature conversions explicitly assume Fahrenheit and remain unverified. These are retrospective associations, with 2025 onward separate and no fitted model or causal claim. [Coverage and interpretation](docs/NFL_WEATHER_PERFORMANCE_RELEASE.md).
 
+[NBA attendance/performance CSVs](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/crowd-performance-36186734904-1) link 847,926 roster-listed player/game rows across 32,179 games. Quality checks admit 666,823 outcome rows, including 643,269 with positive integral attendance; 169 failed player/game links remain audited. The 77,057 descriptive summaries separate players, seasons, neutral sites and calendar evaluation periods. Reported attendance and source capacity do not establish actual occupancy. [Coverage, denominators and limits](docs/NBA_CROWD_PERFORMANCE.md).
+
 | Cleaned model table | Development, through 2024 | Holdout, 2025 onward | Total |
 | --- | ---: | ---: | ---: |
 | NBA | 620,323 | 46,636 | 666,959 |
