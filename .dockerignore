@@ -1,0 +1,6 @@
+**
+!azure/
+!azure/*.py
+!azure/*requirements.txt
+!azure/Dockerfile
+!.dockerignore
