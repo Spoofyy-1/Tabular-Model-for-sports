@@ -31,6 +31,46 @@ def panel(dates=None):
 
 
 class NFLTeamTests(unittest.TestCase):
+    def test_blank_team_on_auxiliary_event_cannot_create_an_opponent(self):
+        raw = plays()
+        bad = raw.iloc[:1].copy()
+        bad["play_id"] = "99"
+        bad["defteam"] = " "
+        bad["play_type"] = "kickoff"
+        result = nfl.game_metrics(pd.concat([raw, bad], ignore_index=True).astype("string"))
+        self.assertEqual(len(result), 2)
+        self.assertEqual(set(result.team), {"AAA", "BBB"})
+        self.assertFalse(result.duplicated(["game_id", "team"]).any())
+
+    def test_identical_metrics_across_source_partitions_are_collapsed(self):
+        first = nfl.game_metrics(plays()).assign(source_partition_member="synthetic/season-one")
+        second = first.assign(source_partition_member="synthetic/season-two")
+        clean, audit, report = nfl.reconcile_metrics(pd.concat([first, second], ignore_index=True))
+        self.assertEqual(len(clean), 2)
+        self.assertTrue(audit.empty)
+        self.assertEqual(report["identical_metric_rows_collapsed"], 2)
+        self.assertTrue(clean.source_partition_members.str.contains("season-one").all())
+        self.assertTrue(clean.source_partition_members.str.contains("season-two").all())
+
+    def test_conflicting_metric_excludes_entire_game_both_teams(self):
+        first = nfl.game_metrics(plays()).assign(source_partition_member="synthetic/season-one")
+        conflict = first.assign(source_partition_member="synthetic/season-two")
+        conflict.loc[conflict.team.eq("AAA"), "observed_off_yards"] += 1
+        other = nfl.game_metrics(plays("unaffected")).assign(source_partition_member="synthetic/season-two")
+        clean, audit, report = nfl.reconcile_metrics(pd.concat([first, conflict, other], ignore_index=True))
+        self.assertEqual(set(clean.game_id), {"unaffected"})
+        self.assertEqual(set(audit.team), {"AAA", "BBB"})
+        self.assertEqual(report["quarantined_games"], 1)
+        self.assertEqual(report["conflicting_game_team_keys"], 1)
+
+    def test_within_partition_opponent_conflict_is_not_arbitrarily_chosen(self):
+        first = nfl.game_metrics(plays()).assign(source_partition_member="synthetic/season-one")
+        conflict = first.loc[first.team.eq("AAA")].assign(opponent="CCC")
+        clean, audit, report = nfl.reconcile_metrics(pd.concat([first, conflict], ignore_index=True))
+        self.assertTrue(clean.empty)
+        self.assertEqual(len(audit), 3)
+        self.assertEqual(report["quarantined_games"], 1)
+
     def test_play_and_fourth_down_denominators(self):
         row = nfl.game_metrics(plays()).set_index("team").loc["AAA"]
         self.assertEqual(row.observed_off_plays, 3)

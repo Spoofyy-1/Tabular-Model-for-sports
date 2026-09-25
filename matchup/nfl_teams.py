@@ -58,7 +58,8 @@ def game_metrics(raw):
         raise ValueError("Input PBP game/play keys must be unique")
     for name in NUMERIC:
         frame[name] = numeric(frame, name)
-    identity_valid = frame.posteam.notna() & frame.defteam.notna() & frame.posteam.ne(frame.defteam)
+    identity_valid = (frame.posteam.notna() & frame.defteam.notna() & frame.posteam.ne(frame.defteam)
+                      & frame.posteam.str.strip().ne("") & frame.defteam.str.strip().ne(""))
     live = identity_valid & frame.no_play.eq(0) & frame.qb_kneel.eq(0) & frame.qb_spike.eq(0)
     scrimmage = live & frame.play_type.isin(["pass", "run"]) & frame.down.between(1, 4)
     called_pass = scrimmage & (frame.play_type.eq("pass") | frame.qb_dropback.eq(1).fillna(False) | frame.qb_scramble.eq(1).fillna(False) | frame.pass_attempt.eq(1).fillna(False))
@@ -134,6 +135,29 @@ def team_schedule(raw):
         row.loc[~precision & boundary, "evaluation_split"] = "date_precision_unresolved"
         parts.append(row)
     return pd.concat(parts, ignore_index=True).sort_values(["game_date", "game_id", "team"]).reset_index(drop=True)
+
+
+def reconcile_metrics(frame):
+    """Collapse identical payloads; quarantine whole games with conflicting keys."""
+    required = {"game_id", "team", "opponent", "source_partition_member"}
+    if not required.issubset(frame):
+        raise ValueError("Metric reconciliation requires game/team and source provenance")
+    payload = [name for name in frame if name != "source_partition_member"]
+    distinct = frame.drop_duplicates(payload).copy()
+    conflicts = distinct.duplicated(["game_id", "team"], keep=False)
+    bad_games = set(distinct.loc[conflicts, "game_id"])
+    # Both sides of the game are excluded: a conflict can also contaminate the
+    # opponent's defensive counts. Do not choose an arbitrary source season.
+    audit = frame.loc[frame.game_id.isin(bad_games)].copy()
+    audit["quality_exclusion"] = "game_has_conflicting_team_metrics_or_opponent_identity"
+    clean = distinct.loc[~distinct.game_id.isin(bad_games)].drop(columns="source_partition_member")
+    provenance = frame.groupby(["game_id", "team"], as_index=False).agg(
+        source_partition_members=("source_partition_member", lambda values: json.dumps(sorted(set(values.dropna())), separators=(",", ":"))))
+    clean = clean.merge(provenance, on=["game_id", "team"], how="left", validate="one_to_one")
+    report = {"source_metric_rows": len(frame), "identical_metric_rows_collapsed": len(frame)-len(distinct),
+              "conflicting_game_team_keys": int(distinct.loc[conflicts, ["game_id", "team"]].drop_duplicates().shape[0]),
+              "quarantined_games": len(bad_games), "quarantined_source_metric_rows": len(audit), "canonical_team_game_rows": len(clean)}
+    return clean.reset_index(drop=True), audit.reset_index(drop=True), report
 
 
 def lagged_features(team_games):
@@ -255,21 +279,22 @@ def main():
         sources.append(source)
         for member, raw in csv_members(play_path, lambda name: bool(re.search(r"/pbp/season=\d{4}/data\.csv\.gz$", name))):
             metrics = game_metrics(raw)
+            metrics["source_partition_member"] = member
             partitions.append({"source_member": member, "source_play_rows": len(raw), "team_game_metric_rows": len(metrics)})
             parts.append(metrics)
             print(json.dumps(partitions[-1]), flush=True)
     if not parts:
         raise ValueError("Pinned PBP archive contained no recognized season partitions")
-    metrics = pd.concat(parts, ignore_index=True)
-    if metrics.duplicated(["game_id", "team"]).any():
-        raise ValueError("Team/game metrics overlap source seasons")
+    metrics, metric_conflicts, reconciliation = reconcile_metrics(pd.concat(parts, ignore_index=True))
+    print(json.dumps({"metric_reconciliation": reconciliation}), flush=True)
     joined = schedule.merge(metrics, on=["game_id", "team", "opponent"], how="left", validate="one_to_one", indicator="pbp_join")
     features = lagged_features(joined)
     keys = ["game_id", "team", "opponent", "game_date", "season", "evaluation_split"]
     labels = joined[keys + [name for name in joined if name.startswith("label_")]].copy()
-    observed = joined[keys + [name for name in joined if name.startswith("observed_")] + ["pbp_join"]].copy()
+    observed = joined[keys + [name for name in joined if name.startswith("observed_")] + ["pbp_join", "source_partition_members"]].copy()
     context = joined[[name for name in schedule if not name.startswith("label_")]].copy()
     tables = {name: write(frame, output / (name + ".csv.gz")) for name, frame in [("pregame_team_features", features), ("win_labels", labels), ("observed_team_game_metrics", observed), ("schedule_context_audit", context)]}
+    tables["conflicting_team_game_metrics_audit"] = write(metric_conflicts, output / "conflicting_team_game_metrics_audit.csv.gz")
     matching = metrics.merge(schedule[["game_id", "team", "opponent"]], on=["game_id", "team", "opponent"], how="left", validate="one_to_one", indicator="schedule_join")
     unmapped_metrics = matching.loc[matching.schedule_join.eq("left_only")].copy()
     tables["pbp_games_outside_schedule_audit"] = write(unmapped_metrics, output / "pbp_games_outside_schedule_audit.csv.gz")
@@ -277,6 +302,7 @@ def main():
                "team_game_rows": len(joined), "games": int(joined.game_id.nunique()), "team_games_with_observed_plays": int(joined.observed_off_plays.gt(0).sum()),
                "team_games_without_pbp": int(joined.pbp_join.eq("left_only").sum()), "pbp_team_games_outside_schedule": len(unmapped_metrics),
                "date_partitions": features.evaluation_split.value_counts().to_dict(), "coach_name_rows": int(context.source_coach_name.notna().sum()), "tables": tables, "partitions": partitions,
+               "metric_reconciliation": reconciliation,
                "training_performed": False, "strict_prior_utc_calendar_day_lag": True, "source_historical_publication_verified": False,
                "limitations": ["Latest revised PBP snapshots do not establish their historical publication or model vintage; lagged values are candidates, not verified as-of features.",
                    "Pinned PBP selection has no EPA or win-probability columns. Efficiency means observed yards per play/dropback/run, not EPA or causal skill.",
