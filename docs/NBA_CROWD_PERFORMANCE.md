@@ -10,7 +10,8 @@ Hosted coverage has not yet been verified for this collector. A normal release r
 - `base_game_join_audit.csv.gz` records the source game identities and whether a valid schedule link exists.
 - `player_game_context.csv.gz` links roster-listed player outcomes to accepted game context while preserving participation, missing values and exclusion reasons.
 - `excluded_player_game_audit.csv.gz` retains rejected records for reconciliation.
-- `player_attendance_descriptive_summary.csv.gz` gives fixed attendance-band comparisons by player, season, season type, nominal home status and evaluation period, with explicit sample counts.
+- `player_attendance_descriptive_summary.csv.gz` gives fixed attendance-band comparisons by player, season, season type, nominal home status, neutral-site status and evaluation period, with explicit sample counts.
+- `attendance_band_denominators.csv.gz` keeps distinct games and roster-listed player rows separate for each crowd group.
 
 The archive includes schemas, hashes, source provenance, source license notices and an aggregate coverage report. CSV uses literal `\N` for null, distinct from zero and empty text. Game, team and player identifiers remain strings.
 
