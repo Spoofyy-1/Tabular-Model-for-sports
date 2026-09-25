@@ -53,7 +53,29 @@ def schedule(rows=None):
     return c.normalize_schedule(pd.DataFrame(rows or schedule_rows()))[0]
 
 
+def linked_entities():
+    ids, entities = list(c.EVENTS), {}
+    for i, qid in enumerate(ids):
+        entities[qid] = entity(qid, c.EVENTS[qid][0])
+        if i:
+            entities[qid]["claims"]["P155"] = [qstatement("P155", ids[i-1])]
+        if i + 1 < len(ids):
+            entities[qid]["claims"]["P156"] = [qstatement("P156", ids[i+1])]
+    return entities
+
+
+def response_entities(entities):
+    return [FakeResponse(200, body=json.dumps({"entities": {qid: data}}).encode()) for qid, data in entities.items()]
+
+
 class Attendance(unittest.TestCase):
+    def run_inputs(self, responses):
+        session, budget = FakeSession(responses), c.Budget()
+        with patch.object(c, "require_github_hosted_runner"), patch.object(c.requests, "Session", return_value=session), \
+             patch.object(c, "read_schedule", return_value=(pd.DataFrame(schedule_rows()), {})) as read:
+            result = c.prepare_inputs(budget)
+            return result, budget, read.call_count
+
     def test_reported_count_exact_game_and_calendar_year_not_season(self):
         joined = c.join_events([event()], schedule())
         self.assertTrue(joined.exact_game_join_valid.iloc[0])
@@ -310,11 +332,140 @@ class Attendance(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 c.Budget().fetch("https://www.wikidata.org/first", "wikidata", 5)
 
+    def test_first_api_error_retains_diagnostics_and_skips_schedule(self):
+        response = FakeResponse(200, body=b'{"error":{"code":"maxlag","info":"private-free-text-do-not-publish"}}', retry_after="17")
+        result, budget, reads = self.run_inputs([response])
+        self.assertEqual(budget.requests, 1)
+        self.assertEqual(reads, 0)
+        self.assertEqual(result["schedule_fetch_status"], "not_attempted_no_eligible_event")
+        states = [e["entity_fetch_status"] for e in result["events"]]
+        self.assertEqual(states, ["entity_fetch_failed"] + ["entity_not_fetched"] * 4)
+        self.assertTrue(all(e["attendance_claims"] is None for e in result["events"]))
+        failure = result["failures"][0]
+        self.assertEqual(failure["api_error_code"], "maxlag")
+        self.assertEqual(failure["http_status"], 200)
+        self.assertEqual(failure["retry_after_seconds"], 17)
+        joined = c.join_events(result["events"], result["schedule"])
+        summary = c.coverage(result["events"], joined, result["failures"])
+        self.assertEqual(summary["source_entities_received"], 0)
+        self.assertEqual(summary["source_entities_fetch_failed"], 1)
+        self.assertEqual(summary["source_entities_not_fetched"], 4)
+        self.assertEqual(summary["received_events_without_attendance_property"], 0)
+        self.assertEqual(summary["events_attendance_availability_unobserved"], 5)
+        self.assertNotIn("private-free-text-do-not-publish", json.dumps(summary))
+        self.assertNotIn("private-free-text-do-not-publish", json.dumps(budget.records))
+
+    def test_http_error_retry_after_metadata_without_reading_body(self):
+        response = FakeResponse(429, body=b"forbidden response body", retry_after="Wed, 01 Jan 2031 00:00:00 GMT")
+        result, budget, reads = self.run_inputs([response])
+        failure = result["failures"][0]
+        self.assertEqual(failure["error"], "http_error")
+        self.assertEqual(failure["http_status"], 429)
+        self.assertEqual(failure["retry_after_utc"], "2031-01-01T00:00:00+00:00")
+        self.assertEqual(budget.bytes, 0)
+        self.assertFalse(budget.records[0]["body_read"])
+        self.assertEqual(reads, 0)
+
+    def test_unavailable_and_received_missing_claims_have_different_denominators(self):
+        qid = next(iter(c.EVENTS))
+        received = {"id": qid, "claims": {}}  # A valid received entity can truly lack P1110.
+        responses = response_entities({qid: received}) + [FakeResponse(200, body=b'{"error":{"code":"badvalue"}}')]
+        result, _, reads = self.run_inputs(responses)
+        self.assertEqual(reads, 0)
+        self.assertEqual(result["events"][0]["attendance_status"], "missing_property")
+        self.assertEqual(result["events"][0]["attendance_claims"], 0)
+        self.assertEqual(result["events"][1]["attendance_status"], "entity_fetch_failed")
+        self.assertIsNone(result["events"][1]["attendance_claims"])
+        joined = c.join_events(result["events"], result["schedule"])
+        summary = c.coverage(result["events"], joined, result["failures"])
+        self.assertEqual(summary["source_entities_received"], 1)  # Revision absence does not mean fetch failure.
+        self.assertEqual(summary["received_events_without_attendance_property"], 1)
+        self.assertEqual(summary["received_events_missing_or_unresolved_count"], 1)
+        self.assertEqual(summary["events_attendance_availability_unobserved"], 4)
+
+    def test_one_observed_count_does_not_classify_four_unfetched_as_missing(self):
+        first = next(iter(c.EVENTS))
+        events = [c.parse_event(qid, entity(qid, c.EVENTS[qid][0]) if qid == first else {}) for qid in c.EVENTS]
+        empty_schedule = c.normalize_schedule(pd.DataFrame(columns=c.SCHEDULE_COLUMNS))[0]
+        joined = c.join_events(events, empty_schedule)
+        summary = c.coverage(events, joined, [])
+        self.assertEqual(summary["source_entities_received"], 1)
+        self.assertEqual(summary["events_with_reported_count"], 1)
+        self.assertEqual(summary["received_events_missing_or_unresolved_count"], 0)
+        self.assertEqual(summary["events_attendance_availability_unobserved"], 4)
+
+    def test_invalid_entity_payload_is_failed_not_missing_property(self):
+        qid = next(iter(c.EVENTS))
+        for invalid in ({"id": qid}, {"id": qid, "claims": []}, {"id": "Q999999999", "claims": {}},
+                        {"id": qid, "claims": {"P1110": [None]}}):
+            result, budget, reads = self.run_inputs(response_entities({qid: invalid}))
+            self.assertEqual(result["events"][0]["attendance_status"], "entity_fetch_failed")
+            self.assertIsNone(result["events"][0]["attendance_claims"])
+            self.assertEqual(result["failures"][0]["error"], "invalid_entity_schema_or_identity")
+            self.assertEqual(budget.requests, 1)
+            self.assertEqual(reads, 0)
+
+    def test_safe_diagnostic_code_and_header_sanitization(self):
+        self.assertEqual(c.safe_api_error_code({"code": "maxlag"}), "maxlag")
+        for bad in ("unsafe\ntext", "https://example.org/?token=secret", "a" * 81, {"unexpected": "object"}, None):
+            self.assertEqual(c.safe_api_error_code({"code": bad}), "missing_or_invalid_code")
+        for bad in ("17\r\nX-Secret: value", "-5", "x" * 129, "https://example.org/token", None):
+            self.assertEqual(c.retry_after_fields(bad), {"retry_after_seconds": None, "retry_after_utc": None})
+
+    def test_no_count_or_invalid_prerequisites_prevent_schedule_download(self):
+        for invalid_identity in (False, True):
+            entities = linked_entities()
+            for qid, data in entities.items():
+                if invalid_identity:
+                    data["claims"]["P585"] = [statement("P585", timevalue(2040))]
+                else:
+                    data["claims"].pop("P1110")
+            result, budget, reads = self.run_inputs(response_entities(entities))
+            self.assertEqual(budget.requests, 5)
+            self.assertEqual(reads, 0)
+            self.assertEqual(result["events_passing_schedule_prerequisites"], 0)
+            self.assertEqual(result["schedule_fetch_status"], "not_attempted_no_eligible_event")
+
+    def test_broken_chain_prevents_schedule_download(self):
+        entities = linked_entities()
+        for data in entities.values():
+            data["claims"].pop("P155", None)
+        result, _, reads = self.run_inputs(response_entities(entities))
+        self.assertEqual(reads, 0)
+        self.assertEqual(result["events_passing_schedule_prerequisites"], 0)
+
+    def test_schedule_download_occurs_only_after_all_fixed_event_requests(self):
+        responses = response_entities(linked_entities()) + [FakeResponse(200, body=b"synthetic archive placeholder")]
+        result, budget, reads = self.run_inputs(responses)
+        self.assertEqual(reads, 1)
+        self.assertEqual(result["schedule_fetch_status"], "fetched_and_validated")
+        self.assertEqual(result["events_passing_schedule_prerequisites"], 5)
+        self.assertEqual([r["kind"] for r in budget.records], ["wikidata"] * 5 + ["schedule"])
+
+    def test_later_api_error_stops_even_when_earlier_event_is_eligible(self):
+        responses = response_entities(linked_entities())[:4] + [FakeResponse(200, body=b'{"error":{"code":"maxlag"}}')]
+        result, budget, reads = self.run_inputs(responses)
+        self.assertGreater(result["events_passing_schedule_prerequisites"], 0)
+        self.assertEqual(budget.requests, 5)
+        self.assertEqual(reads, 0)
+        self.assertEqual(result["schedule_fetch_status"], "not_attempted_after_source_failure")
+
+    def test_signed_redirect_targets_never_appear_in_public_request_records(self):
+        session = FakeSession([FakeResponse(302, location="https://release-assets.githubusercontent.com/path?signature=synthetic-secret"),
+                               FakeResponse(200, body=b"synthetic")])
+        with patch.object(c, "require_github_hosted_runner"), patch.object(c.requests, "Session", return_value=session):
+            budget = c.Budget()
+            budget.fetch(c.SOURCE_URL, "schedule", 100)
+            self.assertNotIn("synthetic-secret", json.dumps(budget.records))
+            self.assertEqual([r["http_status"] for r in budget.records], [302, 200])
+
 
 class FakeResponse:
-    def __init__(self, code, body=b"", location=None):
+    def __init__(self, code, body=b"", location=None, retry_after=None):
         self.status_code, self.body = code, body
         self.headers = {"Location": location} if location else {}
+        if retry_after is not None:
+            self.headers["Retry-After"] = retry_after
 
     def __enter__(self):
         return self
@@ -323,7 +474,8 @@ class FakeResponse:
         pass
 
     def raise_for_status(self):
-        pass
+        if self.status_code >= 400:
+            raise c.requests.HTTPError("synthetic HTTP failure", response=self)
 
     def iter_content(self, _size):
         yield self.body

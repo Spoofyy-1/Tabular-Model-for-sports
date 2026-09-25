@@ -1,6 +1,7 @@
 """Five-event CC0 attendance pilot. Real inputs and outputs are hosted-only."""
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+from email.utils import parsedate_to_datetime
 import gzip
 import hashlib
 import io
@@ -53,12 +54,36 @@ def packed(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def retry_after_fields(header):
+    """Retain only a parsed interval or date, never arbitrary header text."""
+    result = {"retry_after_seconds": None, "retry_after_utc": None}
+    if not isinstance(header, str) or len(header) > 128:
+        return result
+    value = header.strip()
+    if re.fullmatch(r"[0-9]{1,10}", value):
+        result["retry_after_seconds"] = int(value)
+    elif not any(char in value for char in ("\r", "\n")):
+        try:
+            parsed = parsedate_to_datetime(value)
+            if parsed.tzinfo is not None:
+                result["retry_after_utc"] = parsed.astimezone(timezone.utc).isoformat()
+        except (TypeError, ValueError, OverflowError):
+            pass
+    return result
+
+
+def safe_api_error_code(error):
+    code = error.get("code") if isinstance(error, dict) else None
+    return code if isinstance(code, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", code) else "missing_or_invalid_code"
+
+
 class Budget:
     """Every HTTP attempt, including redirects, shares a finite budget."""
     def __init__(self):
         self.requests = self.bytes = self.api_bytes = 0
         self.deadline = time.monotonic() + WALL_SECONDS
         self.records = []
+        self.last_response = {}
 
     def check(self):
         if time.monotonic() >= self.deadline:
@@ -76,6 +101,7 @@ class Budget:
     def fetch(self, url, kind, bound):
         require_github_hosted_runner()
         original = url
+        self.last_response = {}
         with requests.Session() as session:
             session.headers.update({"User-Agent": "sports-props-research/1.0 (+https://github.com/kennynakao/Tabular-Model-for-sports)", "Accept-Encoding": "gzip,deflate"})
             for redirects in range(3):
@@ -84,6 +110,11 @@ class Budget:
                 self.requests += 1
                 timeout = max(0.1, min(30.0, self.deadline - time.monotonic()))
                 with session.get(url, stream=True, allow_redirects=False, timeout=(min(10.0, timeout), timeout)) as response:
+                    metadata = {"http_status": int(response.status_code), **retry_after_fields(response.headers.get("Retry-After"))}
+                    self.last_response = metadata
+                    record = {"source_url": original, "kind": kind, "attempt": self.requests, **metadata,
+                        "retrieved_at_utc": datetime.now(timezone.utc).isoformat(), "body_read": False}
+                    self.records.append(record)
                     if response.status_code in (301, 302, 303, 307, 308):
                         location = response.headers.get("Location")
                         if not location or redirects == 2:
@@ -102,8 +133,8 @@ class Budget:
                             raise RuntimeError("Decoded source byte budget exceeded")
                         body.extend(chunk)
                     result = bytes(body)
-                    self.records.append({"source_url": original, "kind": kind, "bytes": len(result), "sha256": digest(result),
-                        "retrieved_at_utc": datetime.now(timezone.utc).isoformat(), "hash_basis": "HTTP body after transfer/content decoding"})
+                    record.update({"bytes": len(result), "sha256": digest(result), "body_read": True,
+                        "hash_basis": "HTTP body after transfer/content decoding"})
                     return result
         raise RuntimeError("Source response unavailable")
 
@@ -187,8 +218,50 @@ def claim_rows(qid, entity):
     return rows
 
 
-def parse_event(qid, entity):
+def valid_entity_schema(qid, entity):
+    """An absent payload cannot be evidence that a property is absent."""
+    if not isinstance(entity, dict) or entity.get("id") != qid or "missing" in entity or not isinstance(entity.get("claims"), dict):
+        return False
+    if not isinstance(entity.get("labels", {}), dict):
+        return False
+    if any(not isinstance(label, dict) or not isinstance(label.get("value"), str) for label in entity.get("labels", {}).values()):
+        return False
+    def valid_snak(snak):
+        return (isinstance(snak, dict) and snak.get("snaktype") in ("value", "somevalue", "novalue")
+            and (snak.get("snaktype") != "value" or isinstance(snak.get("datavalue"), dict)))
+    for prop in PROPERTIES:
+        statements = entity["claims"].get(prop, [])
+        if not isinstance(statements, list):
+            return False
+        for statement in statements:
+            if not isinstance(statement, dict) or not valid_snak(statement.get("mainsnak")):
+                return False
+            qualifiers, refs = statement.get("qualifiers", {}), statement.get("references", [])
+            if not isinstance(qualifiers, dict) or not isinstance(refs, list):
+                return False
+            for key in SAFE_QUALIFIERS:
+                values = qualifiers.get(key, [])
+                if not isinstance(values, list) or not all(valid_snak(v) for v in values):
+                    return False
+            for reference in refs:
+                if not isinstance(reference, dict) or not isinstance(reference.get("snaks", {}), dict):
+                    return False
+                values = reference.get("snaks", {}).get("P854", [])
+                if not isinstance(values, list) or not all(valid_snak(v) for v in values):
+                    return False
+    return True
+
+
+def parse_event(qid, entity, fetch_state=None):
     expected_year, fallback_label = EVENTS[qid]
+    received = valid_entity_schema(qid, entity)
+    if fetch_state is None:
+        fetch_state = {"entity_fetch_status": "received" if received else ("entity_fetch_failed" if entity else "entity_not_fetched")}
+    fetch_status = fetch_state["entity_fetch_status"]
+    if fetch_status == "received" and not received:
+        fetch_status = "entity_fetch_failed"
+    if fetch_status != "received":
+        entity = {}  # Never interpret unavailable data as missing claims.
     label, language, label_basis = fallback_label, "en", "reviewed_allowlist_metadata"
     for lang in ("en", "mul"):
         source_label = entity.get("labels", {}).get(lang, {})
@@ -198,10 +271,19 @@ def parse_event(qid, entity):
     result = {"event_qid": qid, "expected_calendar_year": expected_year, "event_label": label, "label_language": language,
         "label_basis": label_basis, "event_calendar_date": None, "participant_qids_json": "[]", "participant_codes_json": "[]",
         "nominal_roles_json": "{}", "venue_qid": None, "attendance_reported": None, "attendance_status": "missing_property",
-        "attendance_claims": len(entity.get("claims", {}).get("P1110", [])), "attendance_count_method_verified": False,
-        "attendance_reference_present": False, "entity_revision": str(entity.get("lastrevid", "")) or None,
+        "attendance_claims": len(entity.get("claims", {}).get("P1110", [])) if received and fetch_status == "received" else None,
+        "attendance_count_method_verified": False, "attendance_reference_present": None,
+        "entity_fetch_status": fetch_status, "entity_fetch_failure_kind": fetch_state.get("failure_kind"),
+        "entity_not_fetched_reason": fetch_state.get("not_fetched_reason"), "fetch_http_status": fetch_state.get("http_status"),
+        "fetch_api_error_code": fetch_state.get("api_error_code"), "fetch_retry_after_seconds": fetch_state.get("retry_after_seconds"),
+        "fetch_retry_after_utc": fetch_state.get("retry_after_utc"), "entity_revision": str(entity.get("lastrevid", "")) or None,
         "entity_modified_utc_source": entity.get("modified"), "identity_exclusions": "", "chain_verified": False,
         "source_url": "https://www.wikidata.org/wiki/" + qid, "verified_asof": False, "automatic_training_join_allowed": False}
+    if fetch_status != "received":
+        result["attendance_status"] = fetch_status
+        result["identity_exclusions"] = fetch_status
+        return result
+    result["attendance_reference_present"] = False
     problems = []
     if entity.get("id") != qid or "missing" in entity:
         problems.append("entity_missing_or_id_mismatch")
@@ -427,12 +509,84 @@ def publish_inventory(output, generated):
     return paths
 
 
+def fetch_entities(budget):
+    """Fixed allowlist; the first failed response stops remaining requests."""
+    entities, failures = {}, []
+    states = {qid: {"entity_fetch_status": "entity_not_fetched", "not_fetched_reason": "not_attempted"} for qid in EVENTS}
+    for qid in EVENTS:
+        parameters = {"action": "wbgetentities", "ids": qid, "props": "info|labels|claims", "languages": "en|mul",
+                      "format": "json", "maxlag": "5"}
+        url = "https://www.wikidata.org/w/api.php?" + urlencode(parameters)
+        failure_kind, api_code = None, None
+        try:
+            document = json.loads(budget.fetch(url, "wikidata", 2_000_000))
+            if isinstance(document, dict) and "error" in document:
+                failure_kind, api_code = "api_error", safe_api_error_code(document["error"])
+            else:
+                result = document.get("entities") if isinstance(document, dict) else None
+                candidate = result.get(qid) if isinstance(result, dict) else None
+                if not valid_entity_schema(qid, candidate):
+                    failure_kind = "invalid_entity_schema_or_identity"
+                else:
+                    entities[qid] = candidate
+        except requests.HTTPError:
+            failure_kind = "http_error"
+        except requests.RequestException:
+            failure_kind = "transport_error"
+        except TimeoutError:
+            failure_kind = "collection_wall_timeout"
+        except RuntimeError:
+            failure_kind = "collection_budget_or_runtime_failure"
+        except (ValueError, TypeError):
+            failure_kind = "invalid_json_or_response_schema"
+        metadata = {key: budget.last_response.get(key) for key in ("http_status", "retry_after_seconds", "retry_after_utc")}
+        states[qid] = {"entity_fetch_status": "entity_fetch_failed" if failure_kind else "received", **metadata,
+                       "failure_kind": failure_kind, "api_error_code": api_code}
+        if failure_kind:
+            failures.append({"source": qid, "error": failure_kind, "api_error_code": api_code, **metadata})
+            for state in states.values():
+                if state["entity_fetch_status"] == "entity_not_fetched":
+                    state["not_fetched_reason"] = "collection_stopped_after_source_failure"
+            break
+    return entities, states, failures
+
+
+def prepare_inputs(budget):
+    """Resolve event prerequisites before spending bytes on NFL schedules."""
+    entities, states, failures = fetch_entities(budget)
+    events = validate_chain([parse_event(qid, entities.get(qid, {}), states[qid]) for qid in EVENTS], entities)
+    eligible = [e for e in events if e["entity_fetch_status"] == "received" and not e["identity_exclusions"]
+                and e["chain_verified"] and e["attendance_status"] == "reported_count_available"]
+    schedule, excluded = normalize_schedule(pd.DataFrame(columns=SCHEDULE_COLUMNS))
+    notices = {}
+    schedule_status = "not_attempted_no_eligible_event"
+    if eligible and failures:
+        schedule_status = "not_attempted_after_source_failure"
+    elif eligible:
+        schedule_status = "fetch_failed"
+        try:
+            raw, notices = read_schedule(budget.fetch(SOURCE_URL, "schedule", SOURCE["bytes"]))
+            schedule, excluded = normalize_schedule(raw)
+            schedule_status = "fetched_and_validated"
+        except (ValueError, RuntimeError, TimeoutError, requests.RequestException) as error:
+            failures.append({"source": "schedule", "error": type(error).__name__,
+                **{key: budget.last_response.get(key) for key in ("http_status", "retry_after_seconds", "retry_after_utc")}})
+    return {"entities": entities, "events": events, "failures": failures, "schedule": schedule, "schedule_excluded": excluded,
+            "notices": notices, "schedule_fetch_status": schedule_status, "events_passing_schedule_prerequisites": len(eligible)}
+
+
 def coverage(events, joined, failures):
     available = sum(e["attendance_status"] == "reported_count_available" for e in events)
+    received = sum(e["entity_fetch_status"] == "received" for e in events)
+    failed = sum(e["entity_fetch_status"] == "entity_fetch_failed" for e in events)
+    not_fetched = sum(e["entity_fetch_status"] == "entity_not_fetched" for e in events)
     eligible = int(joined.attendance_join_eligible.sum())
     status = "complete" if eligible == len(EVENTS) and not failures else ("partial" if eligible else "audit_only")
-    return {"status": status, "candidate_events": len(EVENTS), "source_entities_received": sum(e.get("entity_revision") is not None for e in events),
-        "events_with_reported_count": available, "events_missing_or_unresolved_count": len(EVENTS) - available,
+    return {"status": status, "candidate_events": len(EVENTS), "source_entities_received": received,
+        "source_entities_fetch_failed": failed, "source_entities_not_fetched": not_fetched,
+        "events_with_reported_count": available, "received_events_missing_or_unresolved_count": received - available,
+        "received_events_without_attendance_property": sum(e["attendance_status"] == "missing_property" for e in events),
+        "events_attendance_availability_unobserved": failed + not_fetched,
         "exact_schedule_joins": int(joined.exact_game_join_valid.sum()), "attendance_game_rows": eligible,
         "venue_identity_verified_joins": int((joined.venue_identity_verified & joined.exact_game_join_valid).sum()),
         "role_verified_joins": int((joined.home_away_roles_verified & joined.exact_game_join_valid).sum()),
@@ -448,50 +602,27 @@ def main():
         safe_generated_path(output / folder, ROOT)
     (output / "cc0").mkdir(parents=True, exist_ok=True)
     (output / "schedule_join").mkdir(exist_ok=True)
-    budget, entities, failures, notices = Budget(), {}, [], {}
-    schedule, schedule_excluded = normalize_schedule(pd.DataFrame(columns=SCHEDULE_COLUMNS))
+    budget = Budget()
     def timed_out(_signum, _frame):
         raise TimeoutError("Collection wall-clock limit reached")
     old_handler = signal.signal(signal.SIGALRM, timed_out)
     signal.setitimer(signal.ITIMER_REAL, WALL_SECONDS)
     try:
-        raw, notices = read_schedule(budget.fetch(SOURCE_URL, "schedule", SOURCE["bytes"]))
-        schedule, schedule_excluded = normalize_schedule(raw)
-        del raw
-        for qid in EVENTS:
-            parameters = {"action": "wbgetentities", "ids": qid, "props": "info|labels|claims", "languages": "en|mul",
-                          "format": "json", "maxlag": "5"}
-            url = "https://www.wikidata.org/w/api.php?" + urlencode(parameters)
-            try:
-                document = json.loads(budget.fetch(url, "wikidata", 2_000_000))
-                if "error" in document:
-                    raise RuntimeError("Entity API returned an error; collection stopped without retry")
-                if not isinstance(document.get("entities", {}).get(qid), dict):
-                    raise ValueError("Entity API error or missing requested identity")
-                entity = document["entities"][qid]
-                if entity.get("id") != qid or "missing" in entity:
-                    raise ValueError("Entity identity mismatch or missing")
-                entities[qid] = entity
-            except requests.HTTPError as error:
-                status = error.response.status_code if error.response is not None else None
-                failures.append({"source": qid, "error": "http_error", "http_status": status})
-                if status in (403, 429):
-                    break  # Do not continue pressuring a throttled or denied API.
-            except (ValueError, requests.RequestException) as error:
-                failures.append({"source": qid, "error": type(error).__name__})
-    except (ValueError, RuntimeError, TimeoutError, requests.RequestException) as error:
-        failures.append({"source": "collection", "error": type(error).__name__,
-            "detail": str(error)[:300] if not isinstance(error, requests.RequestException) else "HTTP transport failure"})
+        collected = prepare_inputs(budget)
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, old_handler)
-    events = validate_chain([parse_event(qid, entities.get(qid, {})) for qid in EVENTS], entities)
+    entities, events, failures = collected["entities"], collected["events"], collected["failures"]
+    schedule, schedule_excluded, notices = collected["schedule"], collected["schedule_excluded"], collected["notices"]
     joined = join_events(events, schedule)
     claims = pd.DataFrame([row for qid in EVENTS for row in claim_rows(qid, entities.get(qid, {}))], columns=CLAIM_COLUMNS)
     claims["attendance_candidate"] = pd.array(claims.attendance_candidate, dtype="Int64")
     claims = claims.sort_values(["event_qid", "property_id", "statement_id", "statement_index"])
     event_table = pd.DataFrame(events)
     event_table["attendance_reported"] = pd.array(event_table.attendance_reported, dtype="Int64")
+    for field in ("attendance_claims", "fetch_http_status", "fetch_retry_after_seconds"):
+        event_table[field] = pd.array(event_table[field], dtype="Int64")
+        joined[field] = pd.array(joined[field], dtype="Int64")
     tables = {"cc0/claims.csv.gz": claims, "cc0/event_audit.csv.gz": event_table,
               "schedule_join/game_links.csv.gz": joined, "schedule_join/schedule_exclusions.csv.gz": schedule_excluded}
     generated = list(tables)
@@ -503,12 +634,13 @@ def main():
     for name, data in notices.items():
         (output / "schedule_join" / name).write_bytes(data)
     (output / "cc0/SOURCE_RIGHTS.md").write_text("Structured claims: Wikidata CC0. https://www.wikidata.org/wiki/Wikidata:Licensing\nReference URLs are provenance only; linked content was not downloaded. No reference quotations, scores, photographs or Wikipedia prose are exported. Entity retrieval/revision times do not establish historical publication.\n")
-    (output / "schedule_join/SOURCE_RIGHTS.md").write_text("Join of separately attributed Wikidata CC0 claims with the pinned NFL schedule archive. Preserve the attached archive license notices. NFL schedules originate in Lee Sharpe/nfldata through nflverse; https://github.com/nflverse/nfldata . Do not label the entire joined table CC0. No scores or player outcomes are read or exported.\n")
+    (output / "schedule_join/SOURCE_RIGHTS.md").write_text("Game-link audits combine separately attributed Wikidata CC0 claims with an NFL schedule archive only when fetched and validated; consult summary.json schedule_fetch_status. Preserve any attached archive license notices. NFL schedules originate in Lee Sharpe/nfldata through nflverse; https://github.com/nflverse/nfldata . Do not label the entire joined table CC0. No scores or player outcomes are read or exported.\n")
     crosswalk = {"reviewed_at": "2026-09-25", "team_qid_to_code": TEAMS, "exact_venue_name_to_qid": VENUES,
         "identity_source_urls": ["https://www.wikidata.org/wiki/" + qid for qid in sorted(set(TEAMS) | set(VENUES.values()) | set(EVENTS))],
         "provider_stadium_id_equivalence_verified": False}
     (output / "identity_crosswalk.json").write_text(json.dumps(crosswalk, indent=2))
     summary = {**coverage(events, joined, failures), "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "schedule_fetch_status": collected["schedule_fetch_status"], "events_passing_schedule_prerequisites": collected["events_passing_schedule_prerequisites"],
         "source_archive": {**SOURCE, "url": SOURCE_URL}, "source_requests": budget.records, "http_attempts": budget.requests,
         "decoded_source_bytes": budget.bytes, "wikidata_decoded_bytes": budget.api_bytes, "tables": schema,
         "bounds": {"http_attempts_including_redirects": MAX_REQUESTS, "decoded_source_bytes": MAX_BYTES, "wikidata_bytes": MAX_API_BYTES, "collection_wall_seconds": WALL_SECONDS},
