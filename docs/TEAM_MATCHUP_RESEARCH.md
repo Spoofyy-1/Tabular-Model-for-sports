@@ -29,3 +29,18 @@ The eventual availability model should resolve stable player IDs and use pregame
 Documented coach, nutritionist, dietitian, physiotherapist and performance staff roles belong in an evidence table with source URL, publication precision, retrieval time, named person, team/player association and explicit tenure evidence when supplied. A current staff page does not establish that person worked there in 2023. An interview describing a routine is evidence of a statement, not confirmation it occurred at every match. Unknown dates and missing routines remain null. Article bodies, images and private personal information are excluded.
 
 Later testing should compare incremental changes in time-separated log loss, calibration and net expected value with fees and execution assumptions. Staff and celebrity variables can proxy for team identity, star players, playoffs, media coverage or venue; selected anecdotes cannot establish causation. Multiple comparisons, rare events and small samples need explicit controls. Collection does not establish any betting edge.
+
+## CSV layout and collection
+
+The **Collect team matchup research CSVs** workflow publishes separate archives for `nba_teams`, `nfl_teams`, `injury_context` and `staff_routines`. It selects only changed collectors on source pushes. All archives carry a summary, schema, source provenance and SHA-256 inventory. Compressed CSV uses UTF-8 and `\N` for null; preserve identifiers as strings.
+
+| Collector | Table grain | Included measurements |
+|---|---|---|
+| NBA team styles | Team/game plus one home-away comparison per game | Rolling 5/10/20-game shooting mix, free-throw rate, effective FG%, rebound shares, turnover proxy, assist rate, possession proxy and opponent allowances; rest intervals and offense-versus-defense interaction candidates. |
+| NFL team styles | Team/game | Rolling 5/10-game pooled-count pass/run, neutral early-down pass, shotgun, no-huddle, deep target, explosive play, red-zone and fourth-down tendencies; yards-per-play/dropback/run and opponent comparisons. |
+| Injury context | NBA report/team/game; NFL final report/team/game | Listed status counts, report timing, explicit not-submitted/unknown values, conflicting identity exclusions and available practice-status counts. |
+| Staff/routines | Source/person/role or preparation mention | Dated source metadata and separately coded role, advice, plan or reported habit; no assumed match-level adherence. |
+
+`team_game_profiles`/`observed_team_game_metrics` and `team_game_labels`/`win_labels` describe current-game outcomes and belong outside prediction inputs. Only the `pre_*` histories and their opponent comparisons are candidate predictors, subject to historical-availability review. The NBA history resets at each source season. The NFL window can cross seasons, so earlier-coach/earlier-roster influence remains a modeling concern. Both require a prior UTC date and at least a twelve-hour start-time gap; actual completion/publication time remains unverified. NFL ties have an explicit tie result and a null binary win label.
+
+The injury collector also checks upstream NBA quarantined rows. A report affected by an excluded source row cannot supply a complete-count candidate; newer incomplete reports block fallback to older complete reports. Thirty-, sixty- and 120-minute cutoff views overlap and must not be counted as independent games. No rows from these collectors are automatically added to an existing model.
