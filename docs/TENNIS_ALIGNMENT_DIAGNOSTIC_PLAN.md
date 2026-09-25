@@ -1,6 +1,8 @@
 # Tennis alignment: one bounded hosted diagnostic
 
-Plan date: 2026-09-25. The bounded diagnostic is implemented in `tennis_alignment_diagnostic/collect.py`; hosted execution is pending. It does not change accepted matching. Local work inspected code, primary documentation and release manifests, and tested fabricated in-memory fixtures only. No source datasets were downloaded locally.
+The hosted pass is now complete. See [verified aggregate results](TENNIS_ALIGNMENT_DIAGNOSTIC_RELEASE.md): the prerequisite-valid candidate has zero exact-day rows in both metadata representations, and alias expansion changes no matches. The contract below records the bounded diagnostic design; it does not change accepted matching.
+
+Plan date: 2026-09-25. The bounded diagnostic is implemented in `tennis_alignment_diagnostic/collect.py` and its hosted run is verified above. It does not change accepted matching. Local work inspected code, primary documentation, release manifests and aggregate reports, and tested fabricated in-memory fixtures only. No source datasets were downloaded locally.
 
 The verified outcome remains **zero accepted match joins and zero weather rows** in [tennis-weather-36187582212-1](https://github.com/kennynakao/Tabular-Model-for-sports/releases/download/tennis-weather-36187582212-1/tennis_weather_summary.json). One candidate passes entity prerequisites but fails the combined exact MCP lookup; the other lacks the required court claim. Resolving English/default labels corrected one source-contract omission, but did not establish coverage. The two pilot releases are overlapping snapshots, not additive independent facts.
 
