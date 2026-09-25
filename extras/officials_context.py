@@ -2,6 +2,7 @@
 """Cloud-only, licensed NBA/NFL officiating crew context; no model integration."""
 import argparse
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import hashlib
 import io
 import json
@@ -32,13 +33,37 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def retry_delay(attempt, status, retry_after, waited_seconds, current_time=None):
+    """Pure bounded retry decision; attempt is zero based, None means stop."""
+    if attempt >= 4 or status not in {None, 429, 500, 502, 503, 504}:
+        return None
+    delay = min(30.0, 2.0 ** (attempt + 1))
+    if retry_after:
+        try:
+            supplied = float(retry_after)
+        except (TypeError, ValueError):
+            try:
+                target = parsedate_to_datetime(retry_after)
+                if target.tzinfo is None:
+                    target = target.replace(tzinfo=timezone.utc)
+                supplied = (target - (current_time or datetime.now(timezone.utc))).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                supplied = 0.0
+        delay = max(delay, supplied)
+    # Never retry earlier than Retry-After to fit the budget: stop instead.
+    if delay > 60 or waited_seconds + delay > 120:
+        return None
+    return delay
+
+
 class Remote:
     def __init__(self):
         self.calls, self.bytes, self.sources = 0, 0, []
+        self.waited_seconds = 0.0
 
     def get(self, url, max_bytes=10_000_000, asset=None):
         require_github_hosted_runner()
-        for attempt in range(2):
+        for attempt in range(5):
             self.calls += 1
             if self.calls > 100:
                 raise RuntimeError("Officials collection exceeded 100 source request budget")
@@ -61,10 +86,16 @@ class Remote:
                               "asset_updated_at_utc": asset.get("updated_at") if asset else None}
                     self.sources.append(record)
                     return content
-            except requests.RequestException:
-                if attempt == 1:
+            except requests.RequestException as exc:
+                response = exc.response
+                status = response.status_code if response is not None else None
+                retry_after = response.headers.get("Retry-After") if response is not None else None
+                delay = retry_delay(attempt, status, retry_after, self.waited_seconds)
+                if delay is None or self.calls >= 100:
                     raise
-                time.sleep(2)
+                self.waited_seconds += delay
+                print(json.dumps({"source_retry": status or "transport_error", "attempt": attempt + 1, "wait_seconds": delay}), flush=True)
+                time.sleep(delay)
         raise RuntimeError("Unreachable source fetch")
 
     def release(self, repo, tag):
@@ -252,6 +283,7 @@ def main():
     summary = {"created_at_utc": now(), "dataset": "nba_nfl_official_assignments", "collection_status": "partial" if gaps else "completed",
                "nfl_ambiguous_schedule_keys": int(mapping_audit.source_game_id.nunique()),
                "source_requests": remote.calls, "source_bytes": remote.bytes, "official_rows": sum(row["official_rows"] for row in coverage), "partitions": coverage,
+               "source_retry_wait_seconds": remote.waited_seconds,
                "gaps": gaps, "tables": tables, "sources": remote.sources,
                "attribution": "NBA ESPN-derived officials compiled by hoopR/SportsDataverse; NFL officials via nflverse. Both official datasets publish CC BY 4.0. NFL schedule lookup: Lee Sharpe and nflverse/nfldata contributors; no blanket third-party license asserted.",
                "source_schema_reference": {"nba": "https://github.com/sportsdataverse/hoopR-nba-data/blob/4a640c7f04f139c33198b8c22e0f2a5b48fc1d28/R/espn_nba_10_officials_creation.R", "nfl": "https://nflreadr.nflverse.com/reference/load_officials.html"},

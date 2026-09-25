@@ -1,5 +1,6 @@
 """Synthetic source parsing tests; no network or real attendance records."""
 import os
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -7,6 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import celebrity_context as context
+import pandas as pd
 
 
 def document(title="Fictional gallery", date="2022-09-11", text=""):
@@ -14,6 +16,48 @@ def document(title="Fictional gallery", date="2022-09-11", text=""):
 
 
 class CelebrityContextTests(unittest.TestCase):
+    def test_scoped_jsonld_articlebody_preserves_vip_boundaries(self):
+        url = "https://www.nba.com/game/alpha-vs-beta-0022200999"
+        body = {"@type": "NewsArticle", "url": url,
+                "articleBody": "VIP WATCH\nExample Actor was courtside.\nUP NEXT\nUnrelated Person was on hand."}
+        html = '<script type="application/ld+json">' + json.dumps(body) + '</script>'
+        doc = context.extract_document(html, url, include_nba_structured=True)
+        self.assertEqual(context.nba_watch_blocks(doc["nba_structured_blocks"]), ["Example Actor was courtside."])
+        self.assertEqual(context.extract_document(html, url)["nba_structured_blocks"], [])
+
+    def test_nextdata_recap_needs_exact_game_scope_and_excludes_recommendations(self):
+        url = "https://www.nba.com/game/alpha-vs-beta-0022200999"
+        value = {"props": {"pageProps": {"gameId": "0022200999", "gameRecap": {
+            "content": "<h3>VIP WATCH</h3><p>Example Actor was in attendance.</p>",
+            "recommendations": [{"articleBody": "VIP WATCH Other Person was courtside."}]}}}}
+        html = '<script id="__NEXT_DATA__" type="application/json">' + json.dumps(value) + '</script>'
+        doc = context.extract_document(html, url, include_nba_structured=True)
+        self.assertEqual(context.nba_watch_blocks(doc["nba_structured_blocks"]), ["Example Actor was in attendance."])
+        wrong = html.replace('"0022200999"', '"0022200998"')
+        self.assertEqual(context.extract_document(wrong, url, include_nba_structured=True)["nba_structured_blocks"], [])
+
+    def test_nfl_game_link_unique_schedule_and_adjacent_actor_clause(self):
+        text = "The Chiefs visited the Jets in the reported game, ending 23-20."
+        page = {"linked_games": [{"url": "https://www.nfl.com/games/chiefs-at-jets-2022-reg-2?active-tab=watch", "context": text}],
+                "blocks": [text, "Video showed entering the stadium's security area with actors Example Actor and Fictional Guest. Other Person was elsewhere.",
+                           "A week earlier, Another Person attended a concert."]}
+        schedule = pd.DataFrame([{"season": "2022", "week": "2", "game_type": "REG", "away_team": "KC", "home_team": "NYJ",
+                                  "game_id": "synthetic-game", "gameday": "2022-02-02", "gametime": "20:20", "espn": "001"}])
+        event, actual_context = context.nfl_linked_event(page, schedule)
+        self.assertEqual(event["event_key"], "nflverse:synthetic-game")
+        self.assertEqual(event["event_start_utc"], "2022-02-03T01:20:00+00:00")
+        self.assertEqual(context.nfl_actor_arrivals(page, actual_context)[0][0], "Example Actor and Fictional Guest")
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            context.nfl_linked_event(page, pd.concat([schedule, schedule], ignore_index=True))
+        schedule.loc[0, "gametime"] = ""
+        with self.assertRaises(ValueError):
+            context.nfl_linked_event(page, schedule)
+
+    def test_nfl_future_or_nonadjacent_mentions_are_not_attendance(self):
+        page = {"blocks": ["Current game.", "Future Guest will be entering the stadium's security area with actors Example Actor.",
+                           "Other content.", "A video showed entering the stadium's security area with actors Wrong Person."]}
+        self.assertEqual(context.nfl_actor_arrivals(page, "Current game."), [])
+
     def test_timestamp_needs_timezone_and_date_never_becomes_midnight(self):
         unknown = context.publication_metadata([("2022-09-11", "test")], "", "https://example.test")
         self.assertIsNone(unknown["source_published_at_utc"])

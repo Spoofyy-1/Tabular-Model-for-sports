@@ -5,12 +5,13 @@ rows. Article bodies and images are not redistributed. No missing row means abse
 """
 from datetime import datetime, timedelta, timezone
 import hashlib
+import io
 import json
 from pathlib import Path
 import re
 import sys
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 import pandas as pd
 import requests
@@ -26,7 +27,7 @@ SOURCES = [
     {"url": "https://www.usopen.org/amp/en_US/news/articles/2023-09-10/best_photos_of_timothee_chalamet_kylie_jenner_and_other_celebrities_at_the_2023_us_open_mens_final.html", "parser": "usta_caption"},
     {"url": "https://www.usopen.org/amp/en_US/news/articles/2024-09-08/from_taylor_swift_to_simone_biles_the_best_celebrity_moments_of_the_2024_us_open.html", "parser": "usta_caption"},
     {"url": "https://www.usopen.org/amp/en_US/news/articles/2024-09-08/in_her_tennis_era_taylor_swift_and_travis_kelce_attend_2024_us_open.html", "parser": "audit_only_mixed_events"},
-    {"url": "https://www.nfl.com/news/taylor-swift-takes-in-travis-kelce-chiefs-win-over-jets-at-metlife-stadium", "parser": "audit_only_mixed_events"},
+    {"url": "https://www.nfl.com/news/taylor-swift-takes-in-travis-kelce-chiefs-win-over-jets-at-metlife-stadium", "parser": "nfl_linked_game_actor_arrivals"},
     {"url": "https://www.nfl.com/news/reba-mcentire-post-malone-andra-day-announced-as-pregame-entertainment-lineup-super-bowl-lviii", "parser": "audit_only_announced_not_observed"},
 ]
 MONTHS = {name.lower(): number for number, name in enumerate(
@@ -36,6 +37,7 @@ MONTHS["sept"] = 9
 DATE_RE = re.compile(r"\b(" + "|".join(sorted(MONTHS, key=len, reverse=True)) + r")\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b", re.I)
 FUTURE = re.compile(r"\b(will|expected|scheduled|invited|plans? to|hopes? to|could attend|may attend)\b", re.I)
 RIGHTS = "No open content license identified; minimal cited factual metadata only; commercial reuse not cleared"
+NFL_SCHEDULE_URL = "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv"
 ATTENDANCE_COLUMNS = ["sport", "tour", "event_key", "event_date", "event_date_derivation", "event_start_utc", "official_game_id", "canonical_espn_game_id", "celebrity_name_as_reported", "presence_observed", "source_url", "source_published_at_utc", "source_published_date", "publication_precision", "publication_basis", "retrieved_at_utc", "article_sha256", "evidence_block_sha256", "extraction_rule", "named_entity_model", "identity_independently_verified", "historical_publication_time_verified", "eligible_for_pregame_feature", "automatic_training_join_allowed", "partition_by_event_date", "rights_status"]
 
 
@@ -96,7 +98,58 @@ def json_nodes(value):
             yield from json_nodes(subvalue)
 
 
-def extract_document(html, url):
+def nba_structured_blocks(soup, url):
+    """Only explicit articleBody or recap fields scoped to this NBA game ID."""
+    from bs4 import BeautifulSoup
+    match = re.search(r"\b(00\d{8})\b", url)
+    if not match:
+        return []
+    game_id, bodies = match[1], []
+    def walk(value, path=(), scope=None):
+        if any(str(part).lower() in {"related", "relatedarticles", "recommendations", "relatedstories"} for part in path):
+            return
+        if isinstance(value, dict):
+            direct_ids = [str(value[k]) for k in ("gameId", "game_id", "gameID") if value.get(k) is not None]
+            if direct_ids:
+                scope = game_id if set(direct_ids) == {game_id} else "conflicting_game"
+            urls = [value.get(k) for k in ("url", "@id", "mainEntityOfPage")]
+            urls = [v.get("@id") if isinstance(v, dict) else v for v in urls]
+            linked = any(isinstance(v, str) and urlparse(v).hostname in {"www.nba.com", "nba.com"}
+                         and game_id in urlparse(v).path for v in urls)
+            recap_path = any("recap" in str(part).lower() for part in path)
+            for key, child in value.items():
+                if isinstance(child, str) and (key == "articleBody" or (recap_path and key in {"body", "content", "story", "contentHtml"})):
+                    if linked or (scope == game_id and recap_path) or (set(direct_ids) == {game_id} and key == "articleBody"):
+                        bodies.append(child)
+                elif isinstance(child, (dict, list)):
+                    walk(child, path + (key,), scope)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child, path, scope)
+    for script in soup.find_all("script"):
+        if script.get("type") != "application/ld+json" and script.get("id") != "__NEXT_DATA__":
+            continue
+        try:
+            walk(json.loads(script.get_text()))
+        except (ValueError, TypeError, RecursionError):
+            continue
+    blocks = []
+    for body in dict.fromkeys(bodies):
+        if len(body) > 500_000:
+            continue
+        parsed = BeautifulSoup(body, "html.parser")
+        pieces = [node.get_text(" ", strip=True) for node in parsed.find_all(["p", "h1", "h2", "h3", "h4"])]
+        if not pieces:
+            pieces = parsed.get_text("\n", strip=True).splitlines()
+        for piece in pieces:
+            # Preserve known section boundaries even when articleBody flattens
+            # an uppercase heading and its paragraph into one string.
+            blocks.extend(clean(part) for part in re.split(
+                r"\b(VIP WATCH|CELEBRITY WATCH|CELEBRITY SIGHTINGS|UP NEXT|TIP-INS|INJURY UPDATE|More AP NBA)\b", piece) if clean(part))
+    return blocks
+
+
+def extract_document(html, url, include_nba_structured=False):
     from bs4 import BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
     title_node = soup.find("meta", property="og:title")
@@ -115,6 +168,13 @@ def extract_document(html, url):
                     candidates.append((item["datePublished"], "article_jsonld_datePublished"))
         except (ValueError, TypeError):
             pass
+    structured = nba_structured_blocks(soup, url) if include_nba_structured else []
+    # Linked game identity remains contextual to its own paragraph, not the
+    # page's navigation, sidebar schedule or unrelated recommended articles.
+    linked_games = [{"url": urljoin(url, node.get("href", "")),
+                     "context": clean(node.find_parent("p").get_text(" ", strip=True))}
+                    for node in soup.find_all("a", href=True)
+                    if "/games/" in node["href"] and node.find_parent("p") is not None]
     for node in soup(["script", "style", "nav", "footer"]):
         node.decompose()
     blocks = [clean(node.get_text(" ", strip=True)) for node in soup.find_all(["p", "h1", "h2", "h3", "h4", "figcaption"])]
@@ -123,7 +183,8 @@ def extract_document(html, url):
     blocks = list(dict.fromkeys(block for block in blocks if block))
     full_text = clean(soup.get_text(" ", strip=True))
     return {"title": title, "blocks": blocks, "text": full_text,
-            "publication": publication_metadata(candidates, full_text, url)}
+            "publication": publication_metadata(candidates, full_text, url),
+            "nba_structured_blocks": structured, "linked_games": linked_games}
 
 
 def nba_watch_blocks(blocks):
@@ -203,7 +264,7 @@ def attendance_row(event, name, block, source, document, retrieved, rule):
 
 def fetch(url, max_bytes=8_000_000):
     require_github_hosted_runner()
-    if urlparse(url).hostname not in {"www.nba.com", "cdn.nba.com", "www.usopen.org", "www.nfl.com"}:
+    if url != NFL_SCHEDULE_URL and urlparse(url).hostname not in {"www.nba.com", "cdn.nba.com", "www.usopen.org", "www.nfl.com"}:
         raise ValueError("Source host is outside documented catalog")
     with requests.get(url, stream=True, timeout=(15, 45), headers={"User-Agent": "sports-context-research/1.0"}) as response:
         response.raise_for_status()
@@ -249,6 +310,61 @@ def nba_event(source_url, document):
     return event, player_names, auxiliary
 
 
+def nfl_linked_event(document, schedule):
+    """Exact official link + unique schedule identity; no nearest-date joins."""
+    aliases = {"chiefs": "KC", "jets": "NYJ"}  # Reviewed official link aliases.
+    matches = []
+    for link in document.get("linked_games", []):
+        parsed = urlparse(link["url"])
+        match = re.fullmatch(r"/games/([a-z-]+)-at-([a-z-]+)-(\d{4})-(reg)-(\d{1,2})/?", parsed.path)
+        if parsed.hostname != "www.nfl.com" or not match:
+            continue
+        away, home, season, game_type, week = match.groups()
+        context = link["context"]
+        if away not in aliases or home not in aliases or not all(re.search(r"\b" + team + r"\b", context, re.I) for team in (away, home)):
+            continue
+        if re.search(r"\b(last week|a week (?:after|earlier)|previous|concert|tour)\b", context, re.I) or FUTURE.search(context):
+            continue
+        required = {"season", "week", "game_type", "away_team", "home_team", "game_id", "gameday", "gametime"}
+        if not required.issubset(schedule):
+            raise ValueError("NFL schedule identity fields unavailable")
+        selected = schedule.loc[(schedule.season.astype(str) == season) & (pd.to_numeric(schedule.week, errors="coerce") == int(week))
+            & schedule.game_type.eq(game_type.upper()) & schedule.away_team.eq(aliases[away]) & schedule.home_team.eq(aliases[home])]
+        if len(selected) != 1:
+            raise ValueError("NFL linked game schedule mapping is ambiguous or missing")
+        row = selected.iloc[0]
+        date, clock, game_id = str(row.gameday), str(row.gametime), str(row.game_id)
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) or not re.fullmatch(r"\d{2}:\d{2}(?::\d{2})?", clock) or not game_id:
+            raise ValueError("NFL game date/time/ID unavailable")
+        stamp = pd.Timestamp(date + " " + clock).tz_localize("America/New_York", ambiguous="raise", nonexistent="raise").tz_convert("UTC")
+        espn = str(row.get("espn", ""))
+        event = {"sport": "NFL", "tour": None, "event_key": "nflverse:" + game_id, "event_date": date,
+            "event_date_derivation": "official_link_teams_season_week_unique_nflverse_schedule",
+            "event_start_utc": stamp.isoformat(), "official_game_id": parsed.path.rstrip("/").rsplit("/", 1)[-1],
+            "canonical_espn_game_id": espn if re.fullmatch(r"\d+", espn) else None}
+        matches.append((event, context))
+    unique = {(event["event_key"], context): (event, context) for event, context in matches}
+    if len(unique) != 1:
+        raise ValueError("Expected exactly one contextual official NFL game link")
+    return next(iter(unique.values()))
+
+
+def nfl_actor_arrivals(document, game_context):
+    """Names only in an explicit actor-arrival clause adjacent to this game."""
+    blocks = document["blocks"]
+    positions = [i for i, block in enumerate(blocks) if clean(block) == clean(game_context)]
+    if len(positions) != 1:
+        return []
+    result = []
+    for block in blocks[positions[0] + 1:positions[0] + 3]:
+        if FUTURE.search(block) or re.search(r"\b(last week|a week (?:after|earlier)|concert)\b", block, re.I):
+            continue
+        match = re.search(r"\bentering (?:the )?stadium(?:'s)? security area with actors ([^.]+)\.", clean(block), re.I)
+        if match:
+            result.append((match[1], block))
+    return result
+
+
 def write(frame, path):
     require_github_hosted_runner()
     frame.to_csv(path, index=False, na_rep=r"\N", compression={"method": "gzip", "mtime": 0})
@@ -267,6 +383,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     retrieved = datetime.now(timezone.utc).isoformat()
     rows, inventory, auxiliaries = [], [], []
+    nfl_schedule = None
     for item in SOURCES:
         source = dict(item)
         source.update({"retrieved_at_utc": retrieved, "rights_status": RIGHTS, "rows_extracted": 0})
@@ -275,7 +392,8 @@ def main():
             raw = fetch(item["url"])
             source.update({"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
             stage = "parse_article"
-            document = extract_document(raw.decode("utf-8", errors="replace"), item["url"])
+            document = extract_document(raw.decode("utf-8", errors="replace"), item["url"],
+                                        include_nba_structured=item["parser"] == "nba_watch_section")
             source.update(document["publication"])
             source["blocks_scanned"] = len(document["blocks"])
             start_rows = len(rows)
@@ -283,10 +401,25 @@ def main():
                 stage = "establish_nba_event"
                 event, players, auxiliary = nba_event(item["url"], document)
                 auxiliaries.append(auxiliary)
-                for block in nba_watch_blocks(document["blocks"]):
+                structured = document.get("nba_structured_blocks", [])
+                source["structured_recap_blocks_scanned"] = len(structured)
+                watch_blocks = list(dict.fromkeys(nba_watch_blocks(document["blocks"]) + nba_watch_blocks(structured)))
+                for block in watch_blocks:
                     for name in normalize_people(nlp, block):
                         if name not in players:
                             rows.append(attendance_row(event, name, block, source, document, retrieved, "nba_scoped_watch_section"))
+            elif item["parser"] == "nfl_linked_game_actor_arrivals":
+                stage = "establish_nfl_linked_game"
+                if nfl_schedule is None:
+                    schedule_raw = fetch(NFL_SCHEDULE_URL, 8_000_000)
+                    nfl_schedule = pd.read_csv(io.BytesIO(schedule_raw), dtype=str, keep_default_na=False)
+                    auxiliaries.append({"url": NFL_SCHEDULE_URL, "bytes": len(schedule_raw),
+                        "sha256": hashlib.sha256(schedule_raw).hexdigest(), "status": "ok",
+                        "rights_status": "nflverse/nfldata schedule lookup only; no blanket redistribution license asserted"})
+                event, game_context = nfl_linked_event(document, nfl_schedule)
+                for names, block in nfl_actor_arrivals(document, game_context):
+                    for name in normalize_people(nlp, names):
+                        rows.append(attendance_row(event, name, block, source, document, retrieved, "nfl_linked_game_adjacent_actor_arrival"))
             elif item["parser"] == "usta_caption":
                 stage = "extract_usta_caption"
                 for block in document["blocks"]:
@@ -320,13 +453,13 @@ def main():
                "limitations": ["Tiny, selected press sample; never infer nonattendance or absence from a missing row.",
                    "No open bulk celebrity-attendance license found. Original article prose and images are never redistributed.",
                    "Derived names are machine-extracted and not independently identity-verified. Single-name celebrities and uncertain captions are omitted.",
-                   "Only exact NBA games or uniquely identified US Open singles finals qualify; multi-match sessions and announced appearances are excluded.",
+                   "Only exact NBA/NFL games or uniquely identified US Open singles finals qualify; multi-match sessions and announced appearances are excluded.",
                    "Source publication metadata comes from today's retrieved article, not an immutable historical capture.",
                    "All pregame-feature and automatic-training permissions remain false; most evidence is retrospective.",
                    "No evidence of a causal performance effect or betting profitability is established."]}
     (output / "summary.json").write_text(json.dumps(summary, indent=2, default=int))
     (output / "schema.json").write_text(json.dumps({"csv_null_encoding": r"\N", "empty_text_distinct_from_null": True,
-        "tables": summary["tables"], "event_key": "NBA official game ID; or tournament/calendar date/gender/singles final, not a canonical player match ID",
+        "tables": summary["tables"], "event_key": "NBA official game ID; exact linked NFL game joined to nflverse schedule; or tournament/calendar date/gender/singles final, not a canonical player match ID",
         "presence_observed": "Positive documented observation only; no zero/negative examples", "rights_status": RIGHTS}, indent=2))
     (output / "SOURCE_RIGHTS.md").write_text("# Source rights and attribution\n\n" + RIGHTS + ".\n\nNBA.com/AP and USTA/USOpen.org retain rights in their articles and images. Only a bounded set of factual presence associations and source metadata is exported. This does not grant an unrestricted content or commercial-use license. No source body or image is included.\n")
 

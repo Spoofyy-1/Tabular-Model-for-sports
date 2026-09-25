@@ -1,5 +1,6 @@
 """Synthetic-only officiating identities, joins, chronology and cloud guards."""
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -24,6 +25,21 @@ def nfl_schedule():
 
 
 class OfficialTests(unittest.TestCase):
+    def test_retry_policy_is_transient_and_bounded(self):
+        for status in [None, 429, 500, 502, 503, 504]:
+            self.assertEqual(officials.retry_delay(0, status, None, 0), 2)
+        self.assertIsNone(officials.retry_delay(0, 404, None, 0))
+        self.assertIsNone(officials.retry_delay(4, 500, None, 0))
+        self.assertIsNone(officials.retry_delay(3, 500, None, 110))
+
+    def test_retry_after_seconds_and_http_dates_are_honored(self):
+        instant = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        self.assertEqual(officials.retry_delay(0, 429, "20", 0), 20)
+        self.assertEqual(officials.retry_delay(0, 503, "Thu, 01 Jan 2026 00:00:30 GMT", 0, instant), 30)
+        self.assertIsNone(officials.retry_delay(0, 429, "300", 0))
+        self.assertIsNone(officials.retry_delay(0, 429, "30", 100))
+        self.assertEqual(officials.retry_delay(0, 500, "invalid", 0), 2)
+
     def test_nba_ids_names_and_actual_date_split(self):
         frame = officials.nba_assignments(nba_source(), nba_schedule(), 2025)
         self.assertEqual(frame.game_id.iloc[0], "123456789")
