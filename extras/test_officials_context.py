@@ -20,7 +20,7 @@ def nba_schedule():
 
 def nfl_schedule():
     return officials.nfl_schedule(pd.DataFrame({"game_id": ["2024_18_AAA_BBB"], "old_game_id": ["2025010500"], "gsis": ["12345"],
-                                               "gameday": ["2025-01-05"], "gametime": ["13:00"]}))
+                                               "gameday": ["2025-01-05"], "gametime": ["13:00"]}))[0]
 
 
 class OfficialTests(unittest.TestCase):
@@ -62,6 +62,34 @@ class OfficialTests(unittest.TestCase):
         frame = officials.nfl_assignments(raw, nfl_schedule())
         self.assertTrue(frame.game_id.isna().all())
         self.assertEqual(frame.evaluation_split.iloc[0], "unknown_game_date")
+
+    def test_unrequested_legacy_duplicates_do_not_block_requested_games(self):
+        source = pd.DataFrame({"game_id": ["2024_18_AAA_BBB", "1960_01_OLD_ONE", "1960_01_OLD_TWO"],
+                               "old_game_id": ["2025010500", "legacy-placeholder", "legacy-placeholder"],
+                               "gameday": ["2025-01-05", "1960-09-01", "1960-09-02"], "gametime": ["13:00", None, None]})
+        lookup, audit = officials.nfl_schedule(source, ["2025010500"])
+        self.assertEqual(lookup.game_id.tolist(), ["2024_18_AAA_BBB"])
+        self.assertTrue(audit.empty)
+
+    def test_requested_ambiguous_mapping_quarantines_every_candidate(self):
+        source = pd.DataFrame({"game_id": ["2024_18_AAA_BBB", "2024_18_CCC_DDD"],
+                               "old_game_id": ["2025010500", "2025010500"],
+                               "gameday": ["2025-01-05", "2025-01-05"], "gametime": ["13:00", "13:00"]})
+        lookup, audit = officials.nfl_schedule(source, ["2025010500"])
+        self.assertTrue(lookup.empty)
+        self.assertEqual(len(audit), 2)
+        raw = pd.DataFrame({"game_id": ["2025010500"], "official_id": ["7"], "official_name": ["Example Ref"], "position": ["Umpire"], "season": [2024]})
+        frame = officials.nfl_assignments(raw, lookup, audit.source_game_id)
+        self.assertTrue(frame.game_id.isna().all())
+        self.assertTrue(frame.game_date.isna().all())
+        self.assertEqual(frame.quality_exclusion.iloc[0], "ambiguous_schedule_game_key")
+
+    def test_exact_duplicate_schedule_rows_are_not_ambiguous(self):
+        source = pd.DataFrame({"game_id": ["2024_18_AAA_BBB"], "old_game_id": ["2025010500"],
+                               "gameday": ["2025-01-05"], "gametime": ["13:00"]})
+        lookup, audit = officials.nfl_schedule(pd.concat([source, source]), ["2025010500"])
+        self.assertEqual(len(lookup), 1)
+        self.assertTrue(audit.empty)
 
     def test_local_main_rejected_before_source_calls_or_output(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(officials.requests, "get") as network, patch.object(Path, "mkdir") as mkdir:

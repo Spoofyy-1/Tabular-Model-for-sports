@@ -102,7 +102,7 @@ def annotate(frame):
     frame.loc[valid & frame.game_date.lt(pd.Timestamp("2025-01-01", tz="UTC")), "evaluation_split"] = "development_through_2024"
     frame.loc[valid & frame.game_date.ge(pd.Timestamp("2025-01-01", tz="UTC")), "evaluation_split"] = "holdout_2025_onward"
     if "game_date_time_known" in frame:
-        uncertain = ~frame.game_date_time_known.fillna(False) & frame.game_date.dt.strftime("%Y-%m-%d").isin(["2024-12-31", "2025-01-01"])
+        uncertain = ~frame.game_date_time_known.astype("boolean").fillna(False) & frame.game_date.dt.strftime("%Y-%m-%d").isin(["2024-12-31", "2025-01-01"])
         frame.loc[uncertain, "evaluation_split"] = "date_precision_unresolved"
     return frame
 
@@ -143,13 +143,18 @@ def nba_assignments(raw, schedule, season):
     return quarantine(annotate(frame), ["game_id", "official_name"])
 
 
-def nfl_schedule(source):
+def nfl_schedule(source, requested_source_game_ids=None):
     required = {"game_id", "old_game_id", "gameday", "gametime"}
     if not required.issubset(source):
         raise ValueError("NFL schedule schema changed; columns=" + repr(sorted(source.columns)))
     frame = source.copy()
     frame["game_id"] = identity(frame.game_id)
     frame["source_game_id"] = identity(frame.old_game_id)
+    if requested_source_game_ids is not None:
+        # Unrelated historical placeholders must not invalidate the requested
+        # modern officiating panel. Preserve every candidate for requested IDs.
+        requested = set(identity(pd.Series(list(requested_source_game_ids), dtype="string")).dropna())
+        frame = frame.loc[frame.source_game_id.isin(requested)].copy()
     frame["schedule_game_key"] = identity(get_column(frame, "gsis"))
     times = frame.gametime.astype("string").replace("", pd.NA)
     local = pd.to_datetime(frame.gameday.astype("string") + " " + times.fillna("00:00"), errors="coerce", format="mixed")
@@ -158,12 +163,13 @@ def nfl_schedule(source):
     columns = ["source_game_id", "game_id", "schedule_game_key", "game_date", "game_date_time_known", "home_team", "away_team", "stadium_id", "stadium", "roof", "surface", "temp", "wind", "referee"]
     frame = frame[[name for name in columns if name in frame]].drop_duplicates()
     frame = frame.loc[frame.source_game_id.notna()]
-    if frame.source_game_id.duplicated().any():
-        raise ValueError("Ambiguous NFL old_game_id schedule key")
-    return frame
+    ambiguous = frame.source_game_id.duplicated(keep=False)
+    audit = frame.loc[ambiguous].copy()
+    audit["mapping_exclusion"] = "conflicting_old_game_id_in_schedule"
+    return frame.loc[~ambiguous].reset_index(drop=True), audit.reset_index(drop=True)
 
 
-def nfl_assignments(raw, lookup):
+def nfl_assignments(raw, lookup, ambiguous_game_ids=()):
     required = {"game_id", "official_id", "official_name", "position", "season"}
     if not required.issubset(raw):
         raise ValueError("NFL official schema changed; columns=" + repr(sorted(raw.columns)))
@@ -181,6 +187,7 @@ def nfl_assignments(raw, lookup):
         frame.loc[comparable, "source_game_key_agrees"] = frame.loc[comparable, "source_game_key"].eq(frame.loc[comparable, "schedule_game_key"])
     frame = quarantine(annotate(frame), ["source_game_id", "official_id"])
     frame.loc[frame.source_game_key_agrees.eq(False).fillna(False), "quality_exclusion"] = "source_game_key_disagrees_with_schedule"
+    frame.loc[frame.source_game_id.isin(set(ambiguous_game_ids)), "quality_exclusion"] = "ambiguous_schedule_game_key"
     return frame
 
 
@@ -229,7 +236,9 @@ def main():
     source_years = pd.to_numeric(get_column(raw, "season"), errors="coerce")
     raw = raw.loc[source_years.between(args.start_season, args.end_season)].copy()
     schedule = pd.read_csv(io.BytesIO(remote.get(SCHEDULE_URL)), dtype="string", keep_default_na=False, na_values=[""])
-    frame = nfl_assignments(raw, nfl_schedule(schedule))
+    lookup, mapping_audit = nfl_schedule(schedule, identity(raw.game_id))
+    frame = nfl_assignments(raw, lookup, mapping_audit.source_game_id)
+    tables["nfl/ambiguous_schedule_mapping_audit.csv.gz"] = write(mapping_audit, out / "nfl/ambiguous_schedule_mapping_audit.csv.gz")
     tables["nfl/source_audit.csv.gz"] = write(raw, out / "nfl/source_audit.csv.gz")
     for season, group in frame.groupby("season", dropna=False):
         relative = "nfl/" + str(int(season)) + "/officials.csv.gz"
@@ -241,6 +250,7 @@ def main():
         if season not in present:
             gaps.append({"sport": "NFL", "season": season, "reason": "source_contains_no_official_rows"})
     summary = {"created_at_utc": now(), "dataset": "nba_nfl_official_assignments", "collection_status": "partial" if gaps else "completed",
+               "nfl_ambiguous_schedule_keys": int(mapping_audit.source_game_id.nunique()),
                "source_requests": remote.calls, "source_bytes": remote.bytes, "official_rows": sum(row["official_rows"] for row in coverage), "partitions": coverage,
                "gaps": gaps, "tables": tables, "sources": remote.sources,
                "attribution": "NBA ESPN-derived officials compiled by hoopR/SportsDataverse; NFL officials via nflverse. Both official datasets publish CC BY 4.0. NFL schedule lookup: Lee Sharpe and nflverse/nfldata contributors; no blanket third-party license asserted.",

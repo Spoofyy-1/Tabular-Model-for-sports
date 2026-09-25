@@ -16,6 +16,8 @@ NFL uses the [nflverse officials release](https://github.com/nflverse/nflverse-d
 
 The NFL schedule lookup remains separately attributed to [Lee Sharpe and nflverse/nfldata contributors](https://github.com/nflverse/nfldata); no blanket third-party license is asserted for it. Source license texts, download URLs, response hashes, retrieval timestamps and release asset update times are retained. Release timestamps are not substituted for the time a referee assignment became known.
 
+Only legacy game IDs actually present in the requested officiating panel enter the NFL schedule lookup. Exact duplicate lookup rows are collapsed; conflicting candidates for any requested legacy ID are all excluded from the join and preserved in `nfl/ambiguous_schedule_mapping_audit.csv.gz`. Affected official records retain unknown canonical game/date and an explicit ambiguity exclusion. Historical placeholder IDs outside the requested panel cannot block collection.
+
 Both datasets are revised postgame snapshots. Every row marks historical publication and pregame assignment timing unverified, with automatic training joins disabled. Attendance and observed weather are retrospective; capacity and venue fields can be revised. Missing identities, conflicting duplicate game/official rows, unmatched schedules and missing source seasons are reported explicitly. No referee effect, causal relationship or profitable betting strategy is claimed.
 
 Synthetic tests: `python -m unittest discover -s extras -p 'test_officials_context.py'`. They cover legacy/canonical NFL mapping, independent-key conflicts, NBA name-only identity, duplicate quarantine, date-based splits, unmatched games, and the local-execution guard.
