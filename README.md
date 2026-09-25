@@ -14,6 +14,8 @@ NBA and NFL player-stat forecasting and team-win research, with tennis context, 
 
 [Validated NFL team-style CSVs](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/matchup-36179718171-1) contain 14,552 team/game rows across 7,276 scheduled games. Observed play coverage is positive for all 14,546 matched team/game rows; six lack PBP. There are 14,518 rows with lagged passing-style features. Schedule coaching names remain an audit field with unverified historical publication timing. The earlier `matchup-36179258148-1` release is explicitly marked **diagnostic: empty play metrics** and must not be used for style modeling.
 
+[Schedule-context CSVs](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/schedule-context-36181271988-1) add schedule-density and opponent comparisons for 64,334 NBA and 14,034 NFL team/game records. The NFL audit has 43 within-season changes in source-listed coaching names. These are additional columns on existing games, not new independent games or verified coaching tenures. See [definitions and exclusions](docs/SCHEDULE_CONTEXT.md).
+
 | Cleaned model table | Development, through 2024 | Holdout, 2025 onward | Total |
 | --- | ---: | ---: | ---: |
 | NBA | 620,323 | 46,636 | 666,959 |

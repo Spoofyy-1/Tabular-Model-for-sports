@@ -13,3 +13,9 @@ NFL audit fields additionally compare source-listed coaching names, stadium IDs/
 Development remains split into pre-2024 fitting candidates and calendar-2024 calibration candidates. 2025 onward is separate. No current-game scores, result labels or observed play metrics are included. No model fitting, validation tuning, Azure activity or trading occurs.
 
 Synthetic tests cover strict window boundaries, future/outcome invariance, simultaneous fixtures across season labels, missing timestamp/home/coach values, independent pair validation, season resets, venue renaming, leading-zero IDs and opponent joins. Hosted coverage gates require positive prior-start coverage and reject unexpectedly empty panels.
+
+## Verified hosted coverage
+
+Successful release [schedule-context-36181271988-1](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/schedule-context-36181271988-1) contains 64,334 NBA team/game candidates across 32,167 games and 14,034 NFL team/game candidates across 7,017 games. There are 63,550 NBA and 13,204 NFL rows with an earlier listed start in the same source season. Sixty-two NBA and 518 NFL source rows are excluded by the identity/date/season checks; excluded records remain in audit CSVs.
+
+All 14,034 NFL candidates have a source-listed coach name, with 43 changes from the immediately previous listed game inside a source season. This is not a count of all coaching hires: offseason changes, unknown start times and season boundaries are excluded from that comparison. NBA coaching names are unavailable in this source and remain null. The release adds context columns to existing games, not new independent games. Its 15 synthetic checks and hosted coverage checks passed; no training occurred.
