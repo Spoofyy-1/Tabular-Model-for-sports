@@ -15,6 +15,13 @@ def event(kind="last_trade_price", size="4", received="2026-04-17T14:00:02Z"):
 
 
 class ActivityTests(unittest.TestCase):
+    def test_decimal_values_from_direct_arrow_pipeline_are_supported(self):
+        audit = Activity()
+        row = event()
+        row.update(price=Decimal("0.4"), size=Decimal("4"))
+        audit.event(row)
+        self.assertEqual(list(audit.rows())[0]["observed_trade_size_sum_not_unique_volume"], Decimal(4))
+
     def test_price_change_sizes_are_never_trading_volume(self):
         audit = Activity()
         audit.event(event())

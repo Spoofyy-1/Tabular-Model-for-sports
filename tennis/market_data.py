@@ -36,12 +36,12 @@ PILOTS = (
 )
 FIELDS = ["archive_hour_utc", "event_slug", "condition_id", "token_id", "outcome_player",
           "event_type", "source_time_utc", "received_time_utc", "source_to_receive_ms",
-          "price", "size", "side", "native_best_bid", "native_best_ask", "native_fee_rate_bps"]
+          "price", "size", "side", "native_best_bid", "native_best_ask", "native_fee_rate_bps", "source_transaction_hash"]
 SNAPSHOT_FIELDS = FIELDS[:9] + ["best_bid", "best_ask", "best_bid_size", "best_ask_size",
                   "bid_levels", "ask_levels", "bid_total_size", "ask_total_size",
                   "spread", "two_sided_uncrossed", "negative_receive_lag"]
 REQUIRED = {"market", "asset_id", "event_type", "timestamp", "timestamp_received", "bids", "asks"}
-OPTIONAL = {"price", "size", "side", "best_bid", "best_ask", "fee_rate_bps"}
+OPTIONAL = {"price", "size", "side", "best_bid", "best_ask", "fee_rate_bps", "transaction_hash"}
 
 
 def now():
@@ -196,6 +196,12 @@ def normalize_event(row, mapping, hour):
         "condition_id": mapping["condition_id"], "token_id": token, "outcome_player": mapping["tokens"][token],
         "event_type": event_type, "source_time_utc": source.isoformat(), "received_time_utc": received.isoformat(),
         "source_to_receive_ms": lag, "side": row.get("side")}
+    tx_hash = row.get("transaction_hash")
+    if tx_hash not in (None, "") and (not isinstance(tx_hash, str) or not re.fullmatch(r"0x[0-9a-fA-F]{64}", tx_hash)):
+        raise ValueError("Unexpected source transaction hash")
+    # A transaction can contain multiple fills; preserve it without claiming
+    # that it is a unique trade-message identifier.
+    output["source_transaction_hash"] = tx_hash or None
     for source_key, destination in [("price", "price"), ("size", "size"), ("best_bid", "native_best_bid"),
                                      ("best_ask", "native_best_ask"), ("fee_rate_bps", "native_fee_rate_bps")]:
         value = row.get(source_key)

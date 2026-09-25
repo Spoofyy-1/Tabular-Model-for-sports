@@ -64,7 +64,7 @@ class Activity:
         """Hash identical observations; do not claim execution-ID deduplication."""
         if len(self.seen[kind]) >= MAX_EVENTS:
             raise ValueError("Activity observation bound exceeded")
-        fingerprint = hashlib.sha256(json.dumps(row, sort_keys=True).encode()).digest()
+        fingerprint = hashlib.sha256(json.dumps(row, sort_keys=True, default=str).encode()).digest()
         if fingerprint in self.seen[kind]:
             self.audit[kind + "_exact_duplicate_observations"] += 1
             return False
