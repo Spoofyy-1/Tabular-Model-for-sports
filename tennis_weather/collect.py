@@ -40,7 +40,7 @@ PINS = {
         "prefix": "data/extras/tennis_context/"}}
 PROPERTIES = {"P31", "P361", "P585", "P710", "P276", "P625"}
 FACT_COLUMNS = ["entity_id", "property_id", "claim_id", "snaktype", "value_json", "rank", "qualifiers_json", "reference_count", "revision", "modified", "retrieved_at_utc", "source_license"]
-LABEL_COLUMNS = ["entity_id", "label_en", "aliases_en_json", "revision", "source_license"]
+LABEL_COLUMNS = ["entity_id", "label_en", "label_mul", "aliases_en_json", "aliases_mul_json", "resolved_label", "resolved_label_language", "resolved_aliases_language", "revision", "source_license"]
 JOIN_COLUMNS = ["match_entity_id", "match_id", "competition_group", "player1_name", "player2_name", "match_local_date", "source_date_precision", "tournament", "round", "court_entity_id", "facility_entity_id", "weather_place_coordinate_id", "court_coordinate_distance_m", "evaluation_split", "timezone_assumption", "date_semantics_assumption", "source_claims_referenced", "venue_geometry_historical_validity_known", "actual_match_start_utc", "actual_match_end_utc", "actual_match_interval_known", "session", "roof_operation", "roof_operation_known", "pregame_available", "automatic_training_join_allowed", "research_only_noncommercial", "license"]
 WEATHER_COLUMNS = ["match_entity_id", "match_id", "weather_date_utc", "calendar_day_start_utc", "calendar_day_end_utc", "calendar_overlap_seconds", "context_class", "place_coordinate_id", "place_id", "requested_latitude", "requested_longitude", "grid_latitude", "grid_longitude", "weather_model", "weather_units_json", "actual_match_interval_known", "roof_operation_known", "pregame_available", "automatic_training_join_allowed", "research_only_noncommercial", "weather_license", "joined_license"]
 QUARANTINE_COLUMNS = ["match_entity_id", "stage", "reason", "candidate_count"]
@@ -65,6 +65,10 @@ class Excluded(ValueError):
     def __init__(self, reason, count=0):
         self.reason, self.count = reason, count
         super().__init__(reason)
+
+
+class NoEligibleCandidates(Exception):
+    """Ordinary audit-only outcome; do not download archives for unusable claims."""
 
 
 class Remote:
@@ -218,9 +222,26 @@ def unique_date(entity):
     return next(iter(days))
 
 
+def resolved_label(entity):
+    # Wikidata default terms are explicitly returned under `mul`; keep provenance.
+    for language in ("en", "mul"):
+        value = entity.get("labels", {}).get(language, {}).get("value")
+        if isinstance(value, str) and value.strip():
+            return value, language
+    return None, None
+
+
+def resolved_aliases(entity):
+    for language in ("en", "mul"):
+        values = [alias.get("value") for alias in entity.get("aliases", {}).get(language, [])]
+        values = [value for value in values if isinstance(value, str) and value.strip()]
+        if values:
+            return values, language
+    return [], None
+
+
 def names(entity):
-    vals = [entity.get("labels", {}).get("en", {}).get("value", "")]
-    vals.extend(alias.get("value", "") for alias in entity.get("aliases", {}).get("en", []))
+    vals = [resolved_label(entity)[0]] + resolved_aliases(entity)[0]
     return {normalized(val) for val in vals if len(normalized(val).split()) >= 2}
 
 
@@ -234,16 +255,28 @@ def candidate(entity_id, entities):
     if item_ids(entity, "P276") != {COURT} or item_ids(entity, "P361") != {edition}:
         raise Excluded("unverified_exact_court_or_tournament_edition")
     types = item_ids(entity, "P31")
-    if not types or not any(normalized(entities.get(q, {}).get("labels", {}).get("en", {}).get("value")) == "final" for q in types):
+    if not types or not any(normalized(resolved_label(entities.get(q, {}))[0]) == "final" for q in types):
         raise Excluded("unverified_final_round")
     participants = sorted(item_ids(entity, "P710"))
     if len(participants) != 2:
         raise Excluded("participant_count_not_two", len(participants))
     participant_names = [names(entities.get(q, {})) for q in participants]
-    if any(not val for val in participant_names) or participant_names[0] & participant_names[1]:
-        raise Excluded("missing_or_ambiguous_full_participant_names")
+    if any(not val for val in participant_names):
+        raise Excluded("missing_full_participant_names", sum(not val for val in participant_names))
+    if participant_names[0] & participant_names[1]:
+        raise Excluded("intersecting_full_participant_names", len(participant_names[0] & participant_names[1]))
     referenced = all(claim.get("references") for prop in ("P585", "P276", "P710", "P361") for claim in claims(entity, prop))
     return {"entity_id": entity_id, "date": day, "names": participant_names, "referenced": bool(referenced)}
+
+
+def candidate_preflight(entities):
+    accepted, rejected = {}, []
+    for entity_id in sorted(CANDIDATES):
+        try:
+            accepted[entity_id] = candidate(entity_id, entities)
+        except Excluded as exc:
+            rejected.append({"match_entity_id": entity_id, "stage": "candidate_prerequisites", "reason": exc.reason, "candidate_count": exc.count})
+    return accepted, rejected
 
 
 def match_date(value):
@@ -387,7 +420,11 @@ def fact_rows(entities, retrieved):
     facts, labels = [], []
     for qid, entity in sorted(entities.items()):
         labels.append({"entity_id": qid, "label_en": entity.get("labels", {}).get("en", {}).get("value"),
+            "label_mul": entity.get("labels", {}).get("mul", {}).get("value"),
             "aliases_en_json": json.dumps([x.get("value") for x in entity.get("aliases", {}).get("en", [])]),
+            "aliases_mul_json": json.dumps([x.get("value") for x in entity.get("aliases", {}).get("mul", [])]),
+            "resolved_label": resolved_label(entity)[0], "resolved_label_language": resolved_label(entity)[1],
+            "resolved_aliases_language": resolved_aliases(entity)[1],
             "revision": entity.get("lastrevid"), "source_license": "CC0-1.0"})
         for prop in sorted(PROPERTIES):
             for claim in entity.get("claims", {}).get(prop, []):
@@ -402,7 +439,7 @@ def fact_rows(entities, retrieved):
 
 def fetch_entities(remote):
     def fetch(ids):
-        url = "https://www.wikidata.org/w/api.php?" + urlencode({"action": "wbgetentities", "ids": "|".join(sorted(ids)), "props": "info|labels|aliases|claims", "languages": "en", "format": "json", "maxlag": 5})
+        url = "https://www.wikidata.org/w/api.php?" + urlencode({"action": "wbgetentities", "ids": "|".join(sorted(ids)), "props": "info|labels|aliases|claims", "languages": "en|mul", "format": "json", "maxlag": 5})
         raw = remote.get(url, 5_000_000)
         data = json.loads(raw)
         if "error" in data or not isinstance(data.get("entities"), dict):
@@ -433,6 +470,7 @@ def publish(output, tables, summary, sources, source_notices=None):
     schema = {"null_token": r"\N", "all_identifiers": "strings", "boolean_encoding": "True/False", "match_date_precision": "calendar day, never UTC kickoff",
         "source_csv_policy": "Literal backslash-N is null; empty text remains empty; structurally missing cells are rejected.",
         "numeric_weather_policy": "Null and empty numeric observations become unknown/null, never zero; invalid or nonfinite numbers are excluded.",
+        "wikidata_term_policy": "Request en|mul explicitly; use English terms where present, otherwise source-provided mul defaults. Raw terms and selected languages are preserved; no names are invented.",
         "json_columns": "Fields ending _json contain JSON objects/arrays/scalars; weather variables are separate numeric CSV columns.",
         "numeric_columns": ["reference_count", "revision", "court_coordinate_distance_m", "calendar_overlap_seconds", "requested_latitude", "requested_longitude", "grid_latitude", "grid_longitude", "candidate_count"] + DAILY_FIELDS,
         "weather_intervals": "UTC daily buckets; calendar boundaries are not match start/end", "tables": {name: {"columns": cols, "rows": len(rows)} for name, (rows, cols) in tables.items()}}
@@ -489,6 +527,12 @@ def main():
         entities = fetch_entities(remote)
         facts, labels = fact_rows(entities, now())
         input_status["wikidata"] = "validated_response"
+        stage = "candidate_prerequisites"
+        validated_candidates, exclusions = candidate_preflight(entities)
+        quarantine.extend(exclusions)
+        input_status["candidate_preflight"] = "passed_at_least_one" if validated_candidates else "no_candidates_passed"
+        if not validated_candidates:
+            raise NoEligibleCandidates()
         stage = "mcp_archive"
         mp = PINS["mcp"]["prefix"]
         mcp = fetch_bundle(remote, "mcp", [mp + "mens_singles/matches.csv.gz", mp + "schema.json", mp + "LICENSE.txt"])
@@ -512,9 +556,8 @@ def main():
         input_status["same_facility_coordinate"] = "verified_current_identity_and_coordinate_sanity_only"
         used_match_ids = set()
         stage = "candidate_alignment"
-        for entity_id in sorted(CANDIDATES):
+        for entity_id, item in sorted(validated_candidates.items()):
             try:
-                item = candidate(entity_id, entities)
                 match = match_candidate(item, matches)
                 if match["match_id"] in used_match_ids:
                     raise Excluded("match_reused_by_multiple_entities")
@@ -534,6 +577,8 @@ def main():
                 used_match_ids.add(match["match_id"])
             except Excluded as exc:
                 quarantine.append({"match_entity_id": entity_id, "stage": "candidate_alignment", "reason": exc.reason, "candidate_count": exc.count})
+    except NoEligibleCandidates:
+        pass
     except Exception as exc:
         # Never serialize response bodies, redirects' signed URLs or row contents.
         reason = exc.reason if isinstance(exc, Excluded) else str(exc) if isinstance(exc, (ValueError, RuntimeError)) and re.fullmatch(r"[a-z][a-z0-9_]{0,120}", str(exc)) else type(exc).__name__
@@ -552,6 +597,7 @@ def main():
         "quarantine_count": len(quarantine), "exclusion_counts": {reason: sum(row["reason"] == reason for row in quarantine) for reason in sorted({row["reason"] for row in quarantine})},
         "input_status": input_status, "errors": errors, "source_bytes": remote.bytes, "http_requests": remote.requests,
         "original_source_license_notices_preserved": sorted(source_notices),
+        "resolved_label_language_counts": {language or "missing": sum(row["resolved_label_language"] == language for row in labels) for language in ("en", "mul", None)},
         "budgets": {"bytes": MAX_BYTES, "http_requests_including_redirects": MAX_REQUESTS, "network_wall_seconds": MAX_SECONDS},
         "research_only_noncommercial": True, "automatic_training_join_allowed": False, "actual_match_intervals_known": 0, "roof_operations_known": 0,
         "limitations": ["Current Wikidata claims may lack references and historical availability.", "Date-only, explicit Europe/London calendar-day assumption; no actual match or point times.", "Two UTC buckets remain independent; no reconstructed local-day mean or match exposure.", "Same-facility ERA5 proxy, not court sensor; roof operation remains unknown.", "No forecast, training, betting or causal inference; CC0 facts and MCP-derived NC-SA joins stay separate."]}

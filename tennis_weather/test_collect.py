@@ -9,6 +9,7 @@ from pathlib import Path
 import tarfile
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 SPEC = importlib.util.spec_from_file_location("tennis_weather_collect", Path(__file__).with_name("collect.py"))
 c = importlib.util.module_from_spec(SPEC)
@@ -65,6 +66,40 @@ class IdentityTests(unittest.TestCase):
         item = c.candidate("Q128304298", entities())
         self.assertEqual(c.match_candidate(item, [match()])["match_id"], "synthetic-match")
         self.assertFalse(item["referenced"])
+
+    def test_default_mul_labels_resolve_without_inventing_english(self):
+        data = entities()
+        for key in ("Q10001", "Q10002"):
+            data[key]["labels"] = {"mul": data[key]["labels"]["en"]}
+        item = c.candidate("Q128304298", data)
+        self.assertEqual(c.match_candidate(item, [match()])["match_id"], "synthetic-match")
+        _, labels = c.fact_rows(data, "synthetic")
+        row = next(row for row in labels if row["entity_id"] == "Q10001")
+        self.assertIsNone(row["label_en"])
+        self.assertEqual(row["resolved_label_language"], "mul")
+        self.assertEqual(row["resolved_label"], row["label_mul"])
+
+    def test_english_precedes_mul_and_missing_differs_from_overlap(self):
+        data = entities()
+        data["Q10001"]["labels"]["mul"] = {"value": "Different Synthetic Name"}
+        self.assertEqual(c.resolved_label(data["Q10001"]), ("Avery Example", "en"))
+        data["Q10001"]["labels"] = {}
+        with self.assertRaisesRegex(c.Excluded, "missing_full_participant_names"):
+            c.candidate("Q128304298", data)
+        data = entities()
+        data["Q10001"]["aliases"] = {"mul": [{"value": "Blair Sample"}]}
+        with self.assertRaisesRegex(c.Excluded, "intersecting_full_participant_names"):
+            c.candidate("Q128304298", data)
+
+    def test_default_aliases_keep_language_provenance(self):
+        data = {"labels": {"mul": {"value": "Avery Example"}}, "aliases": {"mul": [{"value": "Avery Extended Example"}]}}
+        self.assertIn("avery extended example", c.names(data))
+        self.assertEqual(c.resolved_aliases(data)[1], "mul")
+
+    def test_one_rejected_candidate_does_not_block_valid_candidate(self):
+        accepted, rejected = c.candidate_preflight(entities())
+        self.assertEqual(set(accepted), {"Q128304298"})
+        self.assertEqual([row["match_entity_id"] for row in rejected], ["Q121076423"])
 
     def test_duplicate_identity_not_chosen_by_outcome(self):
         a, b = match(), match()
@@ -236,6 +271,34 @@ class ArchiveAndGuardTests(unittest.TestCase):
     def test_request_budget_checked_before_network(self):
         remote = c.Remote(); remote.requests = c.MAX_REQUESTS
         with self.assertRaisesRegex(RuntimeError, "budget"): remote.check()
+
+    def test_entity_requests_explicit_english_and_default_language(self):
+        class SyntheticRemote:
+            def __init__(self): self.urls = []
+            def get(self, url, limit):
+                self.urls.append(url)
+                return json.dumps({"entities": entities()}).encode()
+        remote = SyntheticRemote()
+        c.fetch_entities(remote)
+        self.assertTrue(remote.urls)
+        for url in remote.urls:
+            self.assertEqual(parse_qs(urlparse(url).query)["languages"], ["en|mul"])
+
+    def test_no_valid_candidate_skips_both_source_archives(self):
+        # Every I/O boundary is mocked with synthetic input; no guard environment
+        # is spoofed, no real request is possible and publication is intercepted.
+        data = entities(); data["Q128304298"]["claims"].pop("P276")
+        with patch.object(c, "require_github_hosted_runner"), patch.object(c, "fetch_entities", return_value=data), \
+             patch.object(c, "fetch_bundle") as archives, patch.object(c, "publish") as publish, \
+             patch.object(c.requests, "get", side_effect=AssertionError("network forbidden")), patch("sys.stdout", new_callable=io.StringIO):
+            c.main()
+        archives.assert_not_called()
+        summary = publish.call_args.args[2]
+        self.assertEqual(summary["status"], "audit_only")
+        self.assertEqual(summary["quarantine_count"], 2)
+        self.assertEqual(summary["input_status"]["candidate_preflight"], "no_candidates_passed")
+        self.assertEqual(summary["errors"], [])
+        self.assertEqual(summary["source_bytes"], 0)
 
 
 if __name__ == "__main__":
