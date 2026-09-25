@@ -15,3 +15,12 @@ Current tracks:
 - NFL combine physical measurements, college and draft history. Career totals from current source snapshots stay isolated from candidate pre-career features.
 
 Next useful expansions include source-licensed NBA/NFL market activity, officials and stadium/court metadata, historical announced schedules, travel/rest proxies and explicit coverage audits for unusual candidate features. Preserve source rights separately. Statistical significance, causal effects and betting profitability have not been established for these exploratory fields.
+
+## Progress as of the first collection pass
+
+- Published tennis point release: `tennis-points-36173714850-1`, 1,873,115 cleaned points; original source views and excluded-key counts retained.
+- Published tennis quote/activity release: `tennis-markets-36173714956-1`, 432,733 observations, eight book snapshots, 240 minute rows. A subsequent run adds supplied transaction references; inspect its aggregate report before selecting the current release.
+- Published NBA/NFL quote/activity release: `sports-markets-36174160216-1`, 25,905 observations, ten snapshots, 212 minute rows. NFL requested prop mapping was excluded, not invented.
+- Context run `36173901119`: NFL profiles and celebrity collectors succeeded; officials collection failed and needs its remote diagnostic log; venue/weather collection was still running at this checkpoint. The batch release publishes after all jobs finish. Inspect `extras-36173901119-1` when available. A failed batch can contain valid per-collector archives.
+- `extras.yml` selects collectors by changed source/test files, so a fix to officials does not redownload all weather/profile sources. Shared packager/workflow changes intentionally revalidate all collectors; avoid unnecessary changes there.
+- Source-only synthetic checks passed: 39 tennis, 25 context extras, seven sports-market and 36 Azure tests. These checks do not replace hosted source validation.

@@ -6,6 +6,8 @@ NBA and NFL player-stat forecasting with public historical data, chronological e
 
 **CSV datasets are published:** [download locations and schemas](docs/CSV_RELEASE.md). The [CSV release](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/csv-36170200182-1) preserves all baseline/context tables as compressed CSV, along with source metadata. A [new enrichment release](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/enrichment-36170742592-1) adds official NBA injury entries, NFL play context and identity candidates. Keep these assets in the cloud.
 
+**Tennis and market data are published:** [verified releases and coverage](docs/TENNIS_RELEASE.md) include 1,873,115 cleaned tennis points, 432,733 tennis market updates and 25,905 NBA/NFL market observations. Tennis point data are noncommercial research only. The latest owner instruction is **data collection only; GPU training is deferred**. A [bounded two-hour collection loop](docs/COLLECTION_LOOP.md) expands public attendance evidence, venue/weather context and officiating data.
+
 | Cleaned model table | Development, through 2024 | Holdout, 2025 onward | Total |
 | --- | ---: | ---: | ---: |
 | NBA | 620,323 | 46,636 | 666,959 |
