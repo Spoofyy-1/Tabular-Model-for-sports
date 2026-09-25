@@ -16,6 +16,10 @@ NBA and NFL player-stat forecasting and team-win research, with tennis context, 
 
 [Schedule-context CSVs](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/schedule-context-36181271988-1) add schedule-density and opponent comparisons for 64,334 NBA and 14,034 NFL team/game records. The NFL audit has 43 within-season changes in source-listed coaching names. These are additional columns on existing games, not new independent games or verified coaching tenures. See [definitions and exclusions](docs/SCHEDULE_CONTEXT.md).
 
+[Coach announcement CSVs](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/coach-events-36182978719-1) add five NFL appointment/agreement annotations, three with resolved announcement dates. Two dates remain conflicted, and three NBA sources denied access. Effective tenures and automatic game joins remain unresolved; see [coverage and semantics](docs/COACH_APPOINTMENT_RELEASE.md).
+
+The [historical tennis-court pilot](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/court-context-36183174897-1) is partial: 18 mapped element/snapshot observations, all missing the requested surface/indoor/covering/lighting tags. Collection stopped after a provider rate limit. This is a coverage audit, not a usable court-condition feature panel; [details and separate source rights](docs/TENNIS_CONTEXT_SOURCE_AUDIT.md).
+
 | Cleaned model table | Development, through 2024 | Holdout, 2025 onward | Total |
 | --- | ---: | ---: | ---: |
 | NBA | 620,323 | 46,636 | 666,959 |
