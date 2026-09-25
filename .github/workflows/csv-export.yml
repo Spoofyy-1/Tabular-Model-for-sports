@@ -1,0 +1,71 @@
+name: Export sports datasets as CSV
+on:
+  push:
+    branches: [main]
+    paths: ['csv_export/**', '.github/workflows/csv-export.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sports-csv-export
+  cancel-in-progress: false
+jobs:
+  export:
+    name: CSV ${{ matrix.dataset }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        dataset: [base-nba, base-nfl, context-nba, context-nfl, matchups, odds]
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r context_requirements.txt
+      - run: python -m unittest discover -s csv_export -p 'test_*.py'
+      - name: Convert on hosted runner
+        env:
+          DATASET: ${{ matrix.dataset }}
+          PYTHONUNBUFFERED: '1'
+        run: |
+          mkdir -p dist
+          set -o pipefail
+          python csv_export/export.py --dataset "$DATASET" 2>&1 | tee "dist/${DATASET}_csv_build.log"
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: csv-${{ matrix.dataset }}
+          path: dist/
+          compression-level: 0
+          retention-days: 7
+  publish:
+    needs: export
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: csv-*
+          path: dist
+          merge-multiple: true
+      - name: Publish CSV release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.export.result }}
+        run: |
+          set -euo pipefail
+          tag="csv-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          printf '%s\n' 'Cloud-only CSV exports of the published NBA/NFL datasets and context tables. Each CSV is gzip-compressed and accompanied by its source schema, row count and provenance. Nulls use the explicit backslash-N token; ID strings preserve leading zeros. Original source licenses are included. Models and chronological splits are unchanged.' > notes.md
+          if [ "$RESULT" = success ]; then
+            gh release create "$tag" dist/* --target "$GITHUB_SHA" --title "Sports datasets in CSV ${GITHUB_RUN_NUMBER}" --notes-file notes.md --latest=false
+          else
+            printf '%s\n' 'INCOMPLETE EXPORT. Review individual logs and manifests before use.' >> notes.md
+            gh release create "$tag" dist/* --target "$GITHUB_SHA" --title "CSV export diagnostics ${GITHUB_RUN_NUMBER}" --notes-file notes.md --prerelease --latest=false
+          fi
