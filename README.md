@@ -20,6 +20,8 @@ NBA and NFL player-stat forecasting and team-win research, with tennis context, 
 
 The [historical tennis-court pilot](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/court-context-36183174897-1) is partial: 18 mapped element/snapshot observations, all missing the requested surface/indoor/covering/lighting tags. Collection stopped after a provider rate limit. This is a coverage audit, not a usable court-condition feature panel; [details and separate source rights](docs/TENNIS_CONTEXT_SOURCE_AUDIT.md).
 
+[NFL weather/performance CSVs](https://github.com/kennynakao/Tabular-Model-for-sports/releases/tag/weather-performance-36184196625-1) join 475,586 player/game records across 7,273 games and provide 8,280 descriptive comparison rows. There are 340,486 open-air rows with recorded weather. Wind units are documented; temperature conversions explicitly assume Fahrenheit and remain unverified. These are retrospective associations, with 2025 onward separate and no fitted model or causal claim. [Coverage and interpretation](docs/NFL_WEATHER_PERFORMANCE_RELEASE.md).
+
 | Cleaned model table | Development, through 2024 | Holdout, 2025 onward | Total |
 | --- | ---: | ---: | ---: |
 | NBA | 620,323 | 46,636 | 666,959 |
