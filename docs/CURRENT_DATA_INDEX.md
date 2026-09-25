@@ -47,3 +47,9 @@ Rows overlap across releases. A player/game with new crowd or weather columns is
 4. Join on validated IDs and compatible time/date semantics. A season label, tournament start date, publication date and actual game/match date are not interchangeable.
 5. Whitelist historical predictors explicitly. Same-game outcomes, actual attendance/weather, retrospective annotations and current staff/capacity snapshots cannot silently become pregame features.
 6. Carry each source's license, attribution, publication uncertainty and missingness flags into derivatives. Nothing in this index establishes commercial betting rights, a causal effect or profitability.
+
+## Reviewed leads awaiting collection or matching
+
+- [Historical Polymarket fills](HISTORICAL_TRADE_SOURCE_AUDIT.md): immutable metadata for a 51.9 MB licensed pilot. Sports coverage and unique economic fills remain unverified; these are not additional collected trades.
+- [Tennis date/source coverage](TENNIS_DATE_SOURCE_AUDIT.md): official date corroboration and parser audit, with a smaller possible hosted diagnostic. Existing match/weather joins remain zero.
+- [Tennis conditions](TENNIS_CONDITIONS_SOURCE_RESEARCH.md): terrain-elevation and surface-product leads, plus unresolved upstream rights. No new ball, roof-operation or umpire dataset was collected.

@@ -1,5 +1,7 @@
 # New historical quote source leads
 
+The [2026-09-25 historical trade audit](HISTORICAL_TRADE_SOURCE_AUDIT.md) adds verified immutable file metadata for a 51.9 MB TimeSeventeen pilot, UTC+8 partition semantics, raw fill-ID requirements and official API limitations. This is a planned coverage audit; no additional sports trades have been collected from that source yet.
+
 Research only, September 25, 2026. No archive datasets were downloaded locally. These are candidates for a bounded hosted audit; coverage is not yet verified.
 
 The strongest lead is [PMXT's Polymarket archive](https://archive.pmxt.dev/Polymarket/v2), explicitly CC BY 4.0 with PMXT attribution. Its [schema documentation](https://archive.pmxt.dev/docs/v2-data-overview) describes received/source timestamps, condition IDs, outcome token IDs, bid/ask arrays on book snapshots and price-change events. A documented public object is `https://r2v2.pmxt.dev/polymarket_orderbook_2026-04-17T12.parquet`. Typical hourly files are 100–400 MB. An initial runner can cap this object at 390 MB and the whole job at 500 MB. Source pages sometimes time out; an unavailable source is a reported gap, not permission to evade restrictions.
