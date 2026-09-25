@@ -47,6 +47,8 @@ The ingestion and training entry points enforce the hosted-runner restriction. D
 
 The separate **Expand sports context datasets** workflow collects more information without refitting the original model bundles. Its outputs are published in separate `context-*` releases, sorted and partitioned with source manifests, schemas, identity checks and temporal flags.
 
+**Published:** [expanded context release](https://github.com/Spoofyy-1/Tabular-Model-for-sports/releases/tag/context-36094215424-1), built successfully in [GitHub Actions](https://github.com/Spoofyy-1/Tabular-Model-for-sports/actions/runs/36094215424). It adds 14,205,388 NBA play events, 6,328,071 shot records, 2,143,437 defender-matchup records, 1,944,255 NFL depth-chart records, 24,833 weekly NFL tracking records and 6,760 newer injury reports. These tables overlap and are not a count of independent player-games. [Coverage and quality details](docs/CONTEXT_RELEASE.md).
+
 | Archive | Additional information |
 | --- | --- |
 | `context-nba.tar.gz` | Play-by-play, shot/event proxies, schedules, venues and gaps between games |

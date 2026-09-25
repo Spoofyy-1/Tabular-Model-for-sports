@@ -27,7 +27,7 @@
     {
       "id": "kalshi",
       "url": "https://docs.kalshi.com/getting_started/historical_data",
-      "status": "optional_research_collector_disabled_in_public_build",
+      "status": "bounded_aggregate_coverage_inventory_published_no_quotes",
       "limitation": "Candles lack fillable depth and historical fee/rule verification; no 2023 conventional player-prop history claimed"
     },
     {
@@ -47,13 +47,13 @@
       "url": "https://github.com/JacobiusMakes/sports-odds-datasets",
       "license": "CC BY 4.0",
       "status": "remote_quarantined_feasibility_sample",
-      "limitation": "Official event/player matching and price semantics unverified; zero ROI-eligible rows"
+      "limitation": "116 candidates audited; 90 pass deterministic game/player/time linkage; rules/fees/payouts/depth unverified; zero ROI-eligible rows"
     },
     {
       "id": "nba_play_context",
       "url": "https://github.com/sportsdataverse/sportsdataverse-data/releases/tag/espn_nba_pbp",
       "coverage": "Requested season-ending years 2002-2026",
-      "status": "cloud_only_context_collector",
+      "status": "published_context-36094215424-1",
       "fields": "Play events, shooting coordinates, actor IDs; schedules/venues in companion release",
       "limitation": "Postgame events must be lagged; not verified historical publication snapshots"
     },
@@ -62,29 +62,29 @@
       "url": "https://github.com/shufinskiy/nba_data",
       "coverage": "Shot files requested season-start 1996-2025; matchup files available from 2017",
       "license": "Apache-2.0 repository; preserve upstream attribution and applicable NBA terms",
-      "status": "cloud_only_context_collector",
+      "status": "published_context-36094215424-1",
       "limitation": "Official NBA IDs differ from ESPN; game mapping audited, player mapping not fabricated; actual defender assignments are retrospective"
     },
     {
       "id": "nfl_nextgen",
       "url": "https://nflreadr.nflverse.com/reference/load_nextgen_stats.html",
       "coverage": "Available source seasons from 2016",
-      "status": "cloud_only_context_collector",
+      "status": "published_context-36094215424-1",
       "limitation": "Weekly realized tracking summaries; week-zero season summaries stored separately"
     },
     {
       "id": "nfl_depth",
       "url": "https://nflreadr.nflverse.com/articles/dictionary_depth_charts.html",
       "coverage": "Requested 2001-2026",
-      "status": "cloud_only_context_collector",
+      "status": "published_context-36094215424-1",
       "limitation": "2001-2024 weekly records; 2025+ timestamped source loads are not independently verified as-of publication times"
     },
     {
       "id": "nfl_injury_update",
       "url": "https://github.com/nflverse/nflverse-data/releases/tag/injuries",
       "coverage": "2025-2026 files now listed in current upstream release; complements baseline2009-2024",
-      "status": "cloud_only_context_collector",
-      "limitation": "Final report snapshots preserve source date_modified; verified_asof remains false"
+      "status": "published_context-36094215424-1",
+      "limitation": "6760 reports; newer upstream lacks per-row date_modified, so timestamps remain null and verified_asof=false"
     }
   ]
 }
