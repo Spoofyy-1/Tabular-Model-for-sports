@@ -51,6 +51,7 @@ Rows overlap across releases. A player/game with new crowd or weather columns is
 
 ## Reviewed leads awaiting collection or matching
 
+- [Sixty unusual feature hypotheses](NOVEL_FEATURE_RESEARCH.md): twenty each for tennis, NBA and NFL, with definitions, source leads, acquisition requirements, prediction timing and a testing protocol. Research ideas only; no additional observations or demonstrated effects.
 - [Historical Polymarket fills](HISTORICAL_TRADE_SOURCE_AUDIT.md): immutable metadata for a 51.9 MB licensed pilot. Sports coverage and unique economic fills remain unverified; these are not additional collected trades.
 - [Tennis date/source coverage](TENNIS_DATE_SOURCE_AUDIT.md): official date corroboration and parser audit, with a smaller possible hosted diagnostic. Existing match/weather joins remain zero.
 - [Tennis conditions](TENNIS_CONDITIONS_SOURCE_RESEARCH.md): terrain-elevation and surface-product leads, plus unresolved upstream rights. No new ball, roof-operation or umpire dataset was collected.
